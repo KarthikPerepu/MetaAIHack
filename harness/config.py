@@ -37,6 +37,8 @@ def _load_dotenv() -> None:
         key, _, value = line.partition("=")
         key = key.strip().removeprefix("export ").strip()
         value = value.strip().strip('"').strip("'")
+        if value.lower() in ("paste-your-key-here", "your-key-here", "your-key"):
+            continue  # placeholder, not a real key
         if key and value and not os.environ.get(key):
             os.environ[key] = value
 
