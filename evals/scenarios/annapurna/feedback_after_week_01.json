@@ -1,0 +1,16 @@
+[
+ {
+  "bill_id": "RK/7008",
+  "class": "scheme_not_given",
+  "feedback": "agreed",
+  "comment": "Mohan ne 5 box free bola tha, claim karo"
+ },
+ {
+  "bill_id": "NB/310",
+  "class": "rate_mismatch",
+  "provided": {
+   "rate": 15
+  },
+  "comment": "Bisleri 1L ka rate 15 hi tay hua hai"
+ }
+]

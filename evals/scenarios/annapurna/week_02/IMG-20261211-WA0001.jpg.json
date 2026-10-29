@@ -1,0 +1,21 @@
+{
+ "bill_id": "RK/7024",
+ "distributor_name": "Rathi Kirana Supply",
+ "bill_date": "2026-12-11",
+ "delivery_date": null,
+ "items": [
+  {
+   "row": 1,
+   "product": "Dhara Mustard Oil 1L",
+   "quantity": 50,
+   "rate": 142,
+   "amount": 7100,
+   "hsn": "1514",
+   "is_free": false
+  }
+ ],
+ "subtotal": 7100.0,
+ "tax_total": 0.0,
+ "grand_total": 7100.0,
+ "ocr_confidence": 0.94
+}

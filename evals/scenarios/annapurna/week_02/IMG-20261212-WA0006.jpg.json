@@ -1,0 +1,23 @@
+{
+ "bill_id": "NB/322",
+ "distributor_name": "Narmada Beverages",
+ "bill_date": "2026-12-12",
+ "delivery_date": "2026-12-03",
+ "items": [
+  {
+   "row": 1,
+   "product": "Bisleri Water 1L",
+   "quantity": 120,
+   "rate": 15,
+   "amount": 1800,
+   "hsn": "2201",
+   "is_free": false,
+   "gst_rate": 5,
+   "gst_amount": 90.0
+  }
+ ],
+ "subtotal": 1800.0,
+ "tax_total": 90.0,
+ "grand_total": 1890.0,
+ "ocr_confidence": 0.94
+}

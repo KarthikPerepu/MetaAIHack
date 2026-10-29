@@ -1,0 +1,10 @@
+{
+ "bill_id": "RK/7001",
+ "class": "clean",
+ "status": "clean",
+ "amount_inr": 0,
+ "tags": [
+  "temporal"
+ ],
+ "reasoning": "dated 2 Dec, before the corrected list took effect"
+}

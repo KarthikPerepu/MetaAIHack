@@ -613,8 +613,34 @@ class IngestPipeline:
             self._add_statement(card, res, src)
         return code
 
+    def _repair_bill_id(self, raw: str, card: DistributorCard, context: str) -> str:
+        """OCR misreads ('G1/1187'): trust the bill number written in the chat, else the sender's code."""
+        if not raw:
+            ids = find_bill_ids(context)
+            return ids[0] if len(ids) == 1 else raw
+        num = raw.split("/")[-1]
+        for bid in find_bill_ids(context):
+            if bid.split("/")[-1] == num:
+                return bid
+        pre = bill_prefix(raw) or raw.split("/")[0]
+        if "/" in raw and pre != card.code and not self.store.card(pre) and len(pre) == len(card.code):
+            confusable = str.maketrans("01258", "OIZSB")
+            if pre.translate(confusable) == card.code or any(not ch.isalpha() for ch in pre):
+                return f"{card.code}/{num}"
+        return raw
+
     def _add_bill(self, card: DistributorCard, res: DocResult, src: SourceRef, injected: str) -> None:
         d = res.data
+        if res.method.endswith("ocr") or res.method.startswith("llama"):
+            d["bill_id"] = self._repair_bill_id(d.get("bill_id", ""), card, src.text)
+            known = self._products(card)
+            for l in d.get("lines", []):
+                hit, score = best_product_match(l["product"], known, threshold=88)
+                if not hit and res.method.endswith("ocr"):
+                    hit = self._match_known_product(card, l["product"])
+                if hit and hit != l["product"]:
+                    l["printed_as"] = l["product"]
+                    l["product"] = hit
         if not d.get("bill_id") or not d.get("bill_date") or not d.get("lines"):
             self.store.add_alert({"source": src.file, "sender": src.sender, "reason": "bill could not be read fully",
                                   "detail": f"bill_id={d.get('bill_id')!r} date={d.get('bill_date')}", "text": "",
