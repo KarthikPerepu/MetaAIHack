@@ -1,6 +1,6 @@
 """
 One normal form for extracted documents, whatever produced them
-(Llama vision, PDF tables, OCR text, or a sidecar JSON).
+(Muse Spark vision, PDF tables, OCR text, or a sidecar JSON).
 
     bill       {bill_id, distributor_name, bill_date, delivery_date, challan_no, lines[...],
                 subtotal, discount_total, tax_total, tax_rate, grand_total, confidence}

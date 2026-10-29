@@ -31,7 +31,7 @@ The repository arrived with a Gemini-generated harness, data and grader. The aud
 
 | Finding | Consequence | What we did |
 |---|---|---|
-| Every photo, PDF and voice note in `data/` was a 16-byte placeholder (`dummy_image_data`); all results came from hand-written `.json` "sidecars". | The harness had never read a real bill. Without sidecars it found **0** findings. | Built real readers (Llama vision with rotation retry, pdfplumber tables, tesseract OCR fallback, Whisper). Rendered real media for the data folders. Sidecars are now an optional extraction cache. |
+| Every photo, PDF and voice note in `data/` was a 16-byte placeholder (`dummy_image_data`); all results came from hand-written `.json` "sidecars". | The harness had never read a real bill. Without sidecars it found **0** findings. | Built real readers (Muse Spark vision with rotation retry, pdfplumber tables, tesseract OCR fallback, Muse Voice Transcribe with local Whisper fallback). Rendered real media for the data folders. Sidecars are now an optional extraction cache. |
 | Distributors were hard-coded (`"GANGA" or "RAMESH" → GT`, `"KASHI" → KP` …). | A third shop (Level 3) would not be recognised at all. | Owner and distributors are identified from display names, bill numbers on the documents each sender sends, payee names and chat-file names. |
 | The bundled grader awarded most points unconditionally (feedback 10/10 for any report, "temporal" 15/15 at 80% recall). | The "100/100" badge measured almost nothing. | Replaced by a strict local grader (§9) and our own two-week eval shop with an answer key. |
 | GST raised `cannot_determine` on bills that charged no tax; bills with injected text were dropped unchecked; the injection filter blocked phrases such as "you are a" and "account number". | Noise towards the 60 % escalation cap; an attacker could hide a bill; false quarantines. | Untaxed bills are silent; injected text is reported and ignored while the bill is still audited; the screen was rebuilt and tested on normal trade talk. |
@@ -39,6 +39,22 @@ The repository arrived with a Gemini-generated harness, data and grader. The aud
 
 Kept from the original: the package layout, per-distributor JSON cards under `--state-dir`,
 the "rate in force on the bill date" idea, and the six-detector structure.
+
+## 1b. Meta models used
+
+All model calls go through the Meta Model API (`https://api.meta.ai/v1`, OpenAI-compatible):
+
+| Model | Job | Guard rails |
+|---|---|---|
+| Muse Spark 1.3 (vision) | bill photos, UPI screenshots, statements, scanned PDFs | output checked against the document's arithmetic; rotation retry; instructions on the document reported, never followed |
+| Muse Spark 1.3 (text) | Hinglish / Devanagari messages and transcripts, PDF fallback, item-name mapping, forward screening, free-text feedback | every number must appear in the source; "permanent" scheme only with the words in the message |
+| Muse Voice Transcribe 1.0 | voice notes, `.opus` decoded to 16 kHz WAV and sent to `/v1/asr/transcribe` with trade keywords | local Whisper fallback |
+
+`reasoning_effort` is `low` (Meta's guidance for simple tasks), which also keeps the hackathon credit
+for real work; answers are cached by content, so reruns cost nothing. The endpoint and model ids are
+settings, so the same harness runs on open Llama weights through any OpenAI-compatible host (the
+problem statement allows "any host, or locally"). Meta's hosted Llama API was reported retired in
+July 2026 in favour of the Meta Model API.
 
 ## 2. Ingest
 
@@ -58,13 +74,13 @@ initials. Senders are mapped once and remembered in `shop.json`, so week 2 keeps
 **Document reader** (`ingest/documents.py`). Every attachment is classified by content, not filename
 (real exports are `IMG-20261009-WA0012.jpg`):
 
-* images → Llama vision (one prompt classifies and extracts a bill / UPI / statement / rate list).
+* images → Muse Spark vision on the Meta Model API (one prompt classifies and extracts a bill / UPI / statement / rate list).
   The read is checked against the document's own arithmetic (qty × rate = amount, rows add to the
   subtotal, subtotal − discount + tax = total). A poor read is retried rotated 90 / 270 / 180°, which
   fixes sideways photos; tesseract's orientation detector chooses the first rotation. Without a model
   key, tesseract OCR + layout-free text parsers read the photo (a bill row is any line with three
   numbers where qty × rate = amount).
-* PDFs → pdfplumber tables mapped through the header row; text parser; Llama text model if that
+* PDFs → pdfplumber tables mapped through the header row; text parser; Muse Spark text if that
   fails; scanned PDFs are rendered and sent to vision / OCR.
 * voice notes → faster-whisper (open model, no key), prompted with Hinglish trade words so the
   transcript stays in Latin script; openai-whisper as second choice.
@@ -78,7 +94,7 @@ spoken rates, credit terms, payment claims, deliveries. A deterministic parser c
 Hinglish and Devanagari wordings ("20 carton lo, 2 free milega", "10 pe 1", "बीस कार्टन पर दो फ्री",
 "do carton free denge agar das carton loge", "hamesha 10+1", "is mahine 5% discount",
 "45 din ka credit, 2% mahina byaj"); Hindi number words are only read as numbers before a unit, so
-"bhej do" is never "2". When a model key is set, the Llama text model reads the message too, and its
+"bhej do" is never "2". When a model key is set, Muse Spark reads the message too, and its
 answer is accepted only if **every number it reports appears in the message**.
 
 **Records.** Each fact becomes a record on the distributor's card with its provenance: file, chat line,
@@ -152,7 +168,7 @@ Every external item carries a polite Hinglish `draft_message`. There is **no pay
 the code**; drafts are scrubbed of PINs, OTPs, account numbers and UPI ids.
 
 **Prompt injection.** Every message, transcript and document text is screened (rules in English, Hinglish
-and Devanagari, plus a Llama second opinion for forwarded / unknown-sender text). Quarantined content
+and Devanagari, plus a Muse Spark second opinion for forwarded / unknown-sender text). Quarantined content
 creates no records and is listed in `safety_alerts`; it never appears in findings. Instructions printed on
 a bill are reported and ignored, and the bill is still audited. Model prompts wrap all chat / OCR text in
 `<<<DATA … DATA>>>` and say it is data, not instructions.
@@ -185,11 +201,11 @@ become normalised decisions in `feedback.json` that every later report applies:
 * answers to open questions (a rate, an HSN / GST rate) unblock the check;
 * paid-in-cash, credit terms, salesman permissions ("Suresh cannot give schemes"), "not a duplicate".
 
-Free text is parsed by rules, then by the Llama text model when the rules find nothing.
+Free text is parsed by rules, then by Muse Spark when the rules find nothing.
 
 ## 9. Evaluation
 
-`make eval` runs 85 cases in `evals/` plus a full replay of our own eval shop:
+`make eval` runs 89 cases in `evals/` plus a full replay of our own eval shop:
 
 * **test_detectors.py** — each class with its look-alikes: rate before/after a new list, billed below
   list, no list, salesman-vs-list conflict; duplicates within 2 days, weeks later with the original
@@ -223,10 +239,10 @@ mistakes are enforced; components not covered by an answer key are shown as n/a 
 
 ## 10. Limits and what we would do next
 
-* **Live model runs.** The development sandbox could not reach a Llama endpoint or download Whisper
+* **Live model runs.** The development sandbox could not reach the Meta Model API or download Whisper
   weights, so the vision / text / speech paths are exercised with a scripted fake model and the offline
   readers. First thing with a key: run `KHATA_IGNORE_SIDECARS=1 make eval-shop` and the exam against
-  Llama 4 vision and tune the prompt on real tilted photos.
+  Muse Spark and tune the prompt on real tilted photos.
 * **The reference files.** `GLOSSARY.md`, the data and the bundled grader in the starting repo were not
   the organisers' originals (see §1). The GST table lives in `harness/data/gst_rates.json` and the policy
   numbers in `harness/config.py::Policy`, so the official values can be dropped in without code changes.
@@ -238,7 +254,7 @@ mistakes are enforced; components not covered by an answer key are shown as n/a 
   challan is treated as a re-order (we prefer missing a claim to claiming twice). Next: match delivery
   confirmations in chat to bills.
 * **Speech.** Whisper on Hinglish is the weakest link; next is a Hindi-tuned checkpoint and asking the
-  Llama text model to repair transcripts against the distributor's product list.
+  Muse Spark text model to repair transcripts against the distributor's product list.
 * **Calibration.** Confidence factors are hand-set from the glossary's guidance. With more labelled weeks
   we would fit them (isotonic regression on findings vs owner verdicts).
 * **Product.** WhatsApp Business webhook instead of exports; credit-note tracking after a claim; a

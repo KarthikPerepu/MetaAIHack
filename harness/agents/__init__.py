@@ -1,2 +1,2 @@
 # Agents Package
-"""Llama-powered agents for reasoning, vision, and speech."""
+"""Agents on Meta's models: Muse Spark for vision and text, Muse Voice Transcribe for speech."""

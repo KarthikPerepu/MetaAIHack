@@ -152,8 +152,105 @@ def _openai_whisper(size: str):
     return whisper.load_model(size)
 
 
-def transcribe(path: str | Path, model_size: str = "small") -> dict:
-    """Return {'text', 'confidence', 'language', 'method'}; empty text when no STT is available."""
+TRADE_KEYWORDS = ["carton", "peti", "bag", "bori", "box", "free", "scheme", "rate", "bill", "discount",
+                  "credit", "byaj", "bhaiya", "didi"]
+
+
+def to_wav_16k(path: str | Path) -> Optional[bytes]:
+    """Decode any WhatsApp audio (.opus/.ogg/.m4a/.mp3) to mono 16-bit 16 kHz WAV bytes.
+
+    Uses PyAV (installed with faster-whisper, works on Windows without ffmpeg), else the ffmpeg CLI.
+    """
+    import wave
+    pcm = b""
+    try:
+        import av
+        with av.open(str(path)) as container:
+            stream = container.streams.audio[0]
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            chunks = []
+            for frame in container.decode(stream):
+                for out in resampler.resample(frame):
+                    chunks.append(out.to_ndarray().tobytes())
+            for out in resampler.resample(None):
+                chunks.append(out.to_ndarray().tobytes())
+            pcm = b"".join(chunks)
+    except Exception as e:
+        logger.info(f"PyAV could not decode {Path(path).name}: {str(e)[:120]}")
+    if not pcm and shutil.which("ffmpeg"):
+        try:
+            pcm = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(path), "-ac", "1", "-ar", "16000",
+                                  "-f", "s16le", "-"], capture_output=True, timeout=60, check=True).stdout
+        except Exception as e:
+            logger.info(f"ffmpeg could not decode {Path(path).name}: {str(e)[:120]}")
+    if not pcm:
+        return None
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def muse_transcribe(path: str | Path, cfg, keywords: Optional[list[str]] = None) -> Optional[dict]:
+    """Meta Model API speech-to-text (Muse Voice Transcribe), one-shot file endpoint.
+
+    POST {base}/asr/transcribe, multipart: a JSON "request" part + the "audio" part, Bearer auth
+    (as in Meta's meta-model-cookbook, 06_muse_voice/01_voice_api_fundamentals).
+    Returns None when not configured or on failure, so the caller can fall back to Whisper.
+    """
+    if cfg is None or cfg.offline or not cfg.api_key or not cfg.is_meta_model_api or not cfg.voice_model:
+        return None
+    import json
+    import time
+    import urllib.error
+    import urllib.request
+    import uuid
+    wav = to_wav_16k(path)
+    if not wav:
+        return None
+    req = {"mode": "PUSH_TO_TALK", "model": cfg.voice_model, "audioEncoding": "WAV",
+           "keywords": (keywords or TRADE_KEYWORDS)[:50]}
+    boundary = "khata-" + uuid.uuid4().hex
+    body = b"".join([
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\n"
+        f"Content-Type: application/json\r\n\r\n".encode(), json.dumps(req).encode(), b"\r\n",
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"voice.wav\"\r\n"
+        f"Content-Type: audio/wav\r\n\r\n".encode(), wav, b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ])
+    url = cfg.base_url.rstrip("/") + "/asr/transcribe"
+    for attempt in range(3):
+        request = urllib.request.Request(url, data=body, method="POST", headers={
+            "Authorization": f"Bearer {cfg.api_key}", "Content-Type": f"multipart/form-data; boundary={boundary}"})
+        try:
+            with urllib.request.urlopen(request, timeout=cfg.timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            text = (data.get("transcript") or " ".join(t.get("transcript", "") for t in data.get("turns") or [])).strip()
+            return {"text": text, "confidence": 0.9 if text else 0.0, "language": "",
+                    "method": f"meta:{cfg.voice_model}"}
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:200]
+            logger.warning(f"Muse Voice Transcribe failed [{e.code}] for {Path(path).name}: {detail}")
+            if e.code not in (429, 500, 502, 503, 504):
+                return None
+        except Exception as e:
+            logger.warning(f"Muse Voice Transcribe failed for {Path(path).name}: {str(e)[:160]}")
+        time.sleep(2 ** attempt)
+    return None
+
+
+def transcribe(path: str | Path, model_size: str = "small", cfg=None,
+               keywords: Optional[list[str]] = None) -> dict:
+    """Return {'text', 'confidence', 'language', 'method'}; empty text when no STT is available.
+
+    Order: Muse Voice Transcribe (Meta Model API) -> faster-whisper -> openai-whisper (both local).
+    """
+    res = muse_transcribe(path, cfg, keywords)
+    if res and res["text"]:
+        return res
     path = str(path)
     try:
         model = _faster_whisper(model_size)

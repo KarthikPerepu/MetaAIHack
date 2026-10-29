@@ -1,5 +1,8 @@
 """
-Llama client (OpenAI-compatible chat completions).
+Model client for Meta's hosted models (OpenAI-compatible chat completions).
+
+Default: Meta Model API (https://api.meta.ai/v1) with Muse Spark; works unchanged with the Llama
+API or any OpenAI-compatible host serving Llama.
 
 * Every call is cached on disk under ``<state>/cache/llm`` keyed by model, prompt
   and image bytes, so a rerun gives identical answers and costs nothing.
@@ -122,25 +125,50 @@ class LlamaClient:
                        {"type": "text", "text": prompt}]
         messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
         last_err = None
-        for attempt in range(self.config.max_retries):
+        params: dict[str, Any] = {"temperature": 0, "max_tokens": max_tokens}
+        if "muse" in model.lower():
+            # Muse Spark reasons before answering and its reasoning tokens count against the output
+            # cap: keep the effort low (reading a bill is not a hard problem) and leave headroom.
+            params = {"temperature": 0, "max_completion_tokens": max_tokens * 3}
+            if self.config.reasoning_effort:
+                params["reasoning_effort"] = self.config.reasoning_effort
+        attempt = 0
+        while attempt < self.config.max_retries:
             try:
                 self.calls += 1
-                resp = self._sdk().chat.completions.create(
-                    model=model, messages=messages, temperature=0, max_tokens=max_tokens)
+                resp = self._sdk().chat.completions.create(model=model, messages=messages, **params)
                 text = resp.choices[0].message.content or ""
                 data = parse_json_loose(text)
                 if not isinstance(data, dict):
                     data = {"items": data}
                 self._cache_put(key, {"model": model, "json": data})
                 return data
-            except Exception as e:  # network, rate limit, bad JSON
+            except Exception as e:  # network, rate limit, bad JSON, unsupported parameter
                 last_err = e
                 msg = str(e).lower()
+                # Newer models (e.g. Muse Spark) may reject older options: adapt once, without
+                # spending a retry.
+                if "max_tokens" in msg and "max_tokens" in params:
+                    params["max_completion_tokens"] = params.pop("max_tokens")
+                    continue
+                if "temperature" in msg and "temperature" in params:
+                    params.pop("temperature")
+                    continue
+                if "reasoning" in msg and "reasoning_effort" in params:
+                    params.pop("reasoning_effort")
+                    continue
+                if "max_completion_tokens" in msg and "max_completion_tokens" in params:
+                    params["max_tokens"] = params.pop("max_completion_tokens")
+                    continue
+                if "role" in msg and messages[0]["role"] == "system":
+                    messages[0] = {"role": "developer", "content": system}
+                    continue
+                attempt += 1
                 wait = 2 ** attempt * (3 if ("429" in msg or "rate" in msg) else 1)
-                logger.warning(f"Llama call failed (attempt {attempt + 1}): {str(e)[:160]}")
+                logger.warning(f"Model call failed (attempt {attempt}): {str(e)[:160]}")
                 time.sleep(min(wait, 10))
         self.failures += 1
-        logger.error(f"Llama call gave up: {str(last_err)[:200]}")
+        logger.error(f"Model call gave up: {str(last_err)[:200]}")
         return None
 
 

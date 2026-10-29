@@ -6,9 +6,9 @@ schemes, spoken rate quotes, credit terms, payment claims, deliveries.
 
 Two layers:
 1. deterministic parser (always runs, offline);
-2. Llama text model (when available) for wordings the rules miss.
+2. the Meta text model, Muse Spark (when available), for wordings the rules miss.
 
-Llama output is accepted only if every number it reports appears in the
+Model output is accepted only if every number it reports appears in the
 message (no invented quantities), and a scheme is only ever "permanent" when
 the message itself contains a recurrence phrase. Treating a one-time scheme
 as permanent is a capping mistake, so the default is always one_time.

@@ -1,9 +1,9 @@
 """
 Attachment reader: decides how to read each file and returns one normalised result.
 
-    image  -> sidecar JSON | Llama vision (auto-rotation) | tesseract OCR + text parser
-    pdf    -> sidecar JSON | pdf tables/text + parser | Llama text | page render -> vision/OCR
-    audio  -> sidecar transcript | Whisper (faster-whisper / openai-whisper)
+    image  -> sidecar JSON | Muse Spark vision (auto-rotation) | tesseract OCR + text parser
+    pdf    -> sidecar JSON | pdf tables/text + parser | Muse Spark text | page render -> vision/OCR
+    audio  -> sidecar transcript | Muse Voice Transcribe | Whisper (local fallback)
 
 Sidecars (``GT-1187.jpg.json``, ``voice.opus.txt``) are treated as a cached
 extraction, not as ground truth: KHATA_IGNORE_SIDECARS=1 forces the real
@@ -236,7 +236,7 @@ class DocumentReader:
 
     # ── audio ────────────────────────────────────────────────
     def _read_audio(self, path: Path) -> DocResult:
-        res = media.transcribe(path, self.whisper_model)
+        res = media.transcribe(path, self.whisper_model, cfg=getattr(self.llama, "config", None))
         if not res["text"]:
             return DocResult("transcript", {"text": ""}, method=res["method"], confidence=0.0, readable=False,
                              note="speech-to-text unavailable or silent audio")
