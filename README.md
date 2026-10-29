@@ -53,7 +53,7 @@ python harness/harness.py feedback data/practice/feedback/feedback.json --state-
 
 Rupee arithmetic is always done in Python, and every number a model returns must appear in the source.
 
-**Where the key goes:** copy `.env.example` to `.env` in the project folder and replace
+**Where the key goes:** on Windows run `.\set_api_key.ps1` and paste the key when asked (it writes `.env` for you). Or copy `.env.example` to `.env` in the project folder and replace
 `paste-your-key-here` with your Meta Model API key. That is the only place. `.env` is git-ignored,
 so it never reaches GitHub. Everything else has working defaults.
 
