@@ -1,0 +1,18 @@
+{
+  "bill_id": "KP/8801",
+  "distributor_code": "KP",
+  "bill_date": "2026-10-14",
+  "subtotal": 20500.0,
+  "tax_total": 0.0,
+  "grand_total": 20500.0,
+  "ocr_confidence": 0.91,
+  "items": [
+    {
+      "product": "Fortune Atta 10kg",
+      "quantity": 50.0,
+      "rate": 410.0,
+      "amount": 20500.0,
+      "hsn": "1101"
+    }
+  ]
+}

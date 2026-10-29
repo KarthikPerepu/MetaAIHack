@@ -1,0 +1,16 @@
+{
+  "bill_id": "SP/4380",
+  "class": "paid_but_shown_due",
+  "status": "confirmed",
+  "amount_inr": 5000.0,
+  "evidence": [
+    "upi_screenshot_5oct.jpg: Ref 427918239012, ₹5,000 paid to Sharma Products on 2026-10-05",
+    "statement_10oct.pdf: Bill SP/4380 still listed as due ₹5,000"
+  ],
+  "action": {
+    "supervised": "draft_whatsapp_reply",
+    "autonomous": "draft_whatsapp_reply"
+  },
+  "confidence": 0.95,
+  "reasoning": "Bill SP/4380 was paid via UPI on 5 Oct (Ref 427918239012), but distributor statement on 10 Oct still shows ₹5,000 as outstanding."
+}

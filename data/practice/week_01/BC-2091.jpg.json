@@ -1,0 +1,20 @@
+{
+  "bill_id": "BC/2091",
+  "distributor_code": "BC",
+  "bill_date": "2026-10-08",
+  "subtotal": 10000.0,
+  "tax_total": 2800.0,
+  "grand_total": 12800.0,
+  "ocr_confidence": 0.93,
+  "items": [
+    {
+      "product": "Cadbury Dairy Milk 50g",
+      "quantity": 100.0,
+      "rate": 100.0,
+      "amount": 10000.0,
+      "hsn": "1704",
+      "gst_rate": 0.28,
+      "gst_amount": 2800.0
+    }
+  ]
+}

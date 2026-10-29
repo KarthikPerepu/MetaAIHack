@@ -1,0 +1,10 @@
+{
+  "bill_id": "GT/1187",
+  "class": "rate_mismatch",
+  "status": "confirmed",
+  "amount_inr": 300.0,
+  "evidence": [
+    "ratelist_v2.pdf: Sunrise Glucose Biscuit | 395",
+    "GT-1187.jpg: Sunrise Glucose 20 x 410"
+  ]
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "bill_id": "GT/1187",
+    "class": "rate_mismatch",
+    "feedback": "agreed",
+    "comment": "Claim back the ₹300 rate difference from Ramesh"
+  },
+  {
+    "bill_id": "GT/1187",
+    "class": "scheme_not_given",
+    "feedback": "confirmed",
+    "product": "Sunrise Glucose Biscuit",
+    "free_qty": 2,
+    "buy_qty": 20,
+    "comment": "Ramesh confirmed the 2 free cartons apply"
+  },
+  {
+    "distributor": "SP",
+    "credit_days": 45,
+    "interest_rate": 0.15,
+    "comment": "Sharma Products agreed 45 days credit terms"
+  }
+]

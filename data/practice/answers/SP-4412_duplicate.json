@@ -1,0 +1,10 @@
+{
+  "bill_id": "SP/4412",
+  "class": "duplicate_bill",
+  "status": "confirmed",
+  "amount_inr": 16400.0,
+  "evidence": [
+    "SP-4401.jpg: delivery 2026-10-05",
+    "SP-4412.jpg: duplicate delivery within 2 days"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "amount": 5000.0,
+  "payment_date": "2026-10-05",
+  "status": "success",
+  "upi_ref": "427918239012",
+  "payee_name": "Sharma Products",
+  "confidence": 0.96
+}

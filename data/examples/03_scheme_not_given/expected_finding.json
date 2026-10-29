@@ -1,0 +1,16 @@
+{
+  "bill_id": "GT/1187",
+  "class": "scheme_not_given",
+  "status": "confirmed",
+  "amount_inr": 790.0,
+  "evidence": [
+    "voice_note_ramesh_5oct.opus: Bhaiya 20 carton lo, 2 carton free milega",
+    "GT-1187.jpg: Sunrise Glucose 20 cartons, no free goods line"
+  ],
+  "action": {
+    "supervised": "draft_whatsapp_reply",
+    "autonomous": "draft_whatsapp_reply"
+  },
+  "confidence": 0.88,
+  "reasoning": "Salesman Ramesh agreed 2 free cartons for 20 cartons ordered. Bill has no free goods line. Value: 2 x ₹395 = ₹790."
+}

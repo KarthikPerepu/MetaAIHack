@@ -1,0 +1,11 @@
+{
+  "statement_date": "2026-10-18",
+  "entries": [
+    {
+      "bill_id": "BW/2900",
+      "bill_date": "2026-10-05",
+      "amount": 8000.0,
+      "status": "due"
+    }
+  ]
+}

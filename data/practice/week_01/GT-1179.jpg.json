@@ -1,0 +1,18 @@
+{
+  "bill_id": "GT/1179",
+  "distributor_code": "GT",
+  "bill_date": "2026-10-02",
+  "subtotal": 4100.0,
+  "tax_total": 0.0,
+  "grand_total": 4100.0,
+  "ocr_confidence": 0.95,
+  "items": [
+    {
+      "product": "Sunrise Glucose Biscuit",
+      "quantity": 10.0,
+      "rate": 410.0,
+      "amount": 4100.0,
+      "hsn": "1905"
+    }
+  ]
+}
