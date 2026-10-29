@@ -1,0 +1,9 @@
+{
+ "bill_id": "NB/310",
+ "class": "rate_mismatch",
+ "status": "clean",
+ "tags": [
+  "after_feedback"
+ ],
+ "reasoning": "owner confirmed ₹15 in feedback, so the missing-rate-list question is answered"
+}

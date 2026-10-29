@@ -1,0 +1,21 @@
+{
+ "bill_id": "RK/7021",
+ "distributor_name": "Rathi Kirana Supply",
+ "bill_date": "2026-12-10",
+ "delivery_date": null,
+ "items": [
+  {
+   "row": 1,
+   "product": "Tata Salt 1kg",
+   "quantity": 30,
+   "rate": 24,
+   "amount": 720,
+   "hsn": "2501",
+   "is_free": false
+  }
+ ],
+ "subtotal": 720.0,
+ "tax_total": 0.0,
+ "grand_total": 720.0,
+ "ocr_confidence": 0.94
+}

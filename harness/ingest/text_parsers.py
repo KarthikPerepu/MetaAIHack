@@ -75,9 +75,11 @@ def parse_bill_text(text: str, ref_year: Optional[int] = None) -> dict:
     t = clean_text(text)
     lines = [l for l in t.splitlines() if l.strip()]
     bill_id = ""
-    m = re.search(r"(?:bill|invoice|inv|बिल)\s*(?:no\.?|number|#|नं\.?|संख्या)?\s*[:.\-]?\s*([A-Z]{1,5}\s*[/\-]\s*\d{2,7})", t, re.I)
+    m = re.search(r"(?:bill|invoice|inv|बिल)\s*(?:no\.?|number|#|नं\.?|संख्या)?\s*[:.\-]?\s*((?=[A-Z0-9]{0,4}[A-Z])[A-Z0-9]{1,5}\s*[/\-]\s*\d{2,7})", t, re.I)
     if m:
         bill_id = normalize_bill_id(m.group(1))
+        if not re.fullmatch(r"[A-Z]{1,5}/\d+", bill_id):
+            bill_id = bill_id.replace(" ", "")
     elif find_bill_ids(t):
         bill_id = find_bill_ids(t)[0]
     bill_date = None
@@ -105,9 +107,17 @@ def parse_bill_text(text: str, ref_year: Optional[int] = None) -> dict:
     items = []
     for line in lines:
         low = line.lower()
+        if re.search(r"(bill\s*no|invoice\s*(no|date)|\bdate\b|dated|gstin|phone|mobile|delivery\s*date|challan)", low):
+            continue
         if re.search(TOTAL_LABELS["grand_total"] + "|" + TOTAL_LABELS["subtotal"] + r"|\bcgst\b|\bsgst\b|\bigst\b", low):
             continue
         clean = re.sub(r"(\d+(?:\.\d+)?)\s*%", r"PCT\1", line)
+        sno_m = re.match(r"^\s*(\d{1,3})[.):]?\s+(?=\D)", clean)
+        if sno_m:                                   # leading serial number "1." / "2)"
+            clean = " " * sno_m.end() + clean[sno_m.end():]
+        # pack sizes ("1L", "500g", "10kg") belong to the product name, not to qty/rate/amount
+        clean = re.sub(r"(?<![\d.,])(\d+(?:\.\d+)?)(\s?)(g|gm|gms|kg|ml|l|ltr|litre|liter)\b",
+                       lambda m: "#" * len(m.group(1)) + m.group(2) + m.group(3), clean, flags=re.I)
         nums = _numbers(clean)
         if len(nums) < 3:
             free = re.search(r"(free|foc|scheme|bonus|फ्री)", low)
@@ -118,23 +128,27 @@ def parse_bill_text(text: str, ref_year: Optional[int] = None) -> dict:
             continue
         best = None
         vals = [n[0] for n in nums]
+        last = len(vals) - 1
         for i in range(len(vals)):
             for j in range(i + 1, len(vals)):
                 for k in range(j + 1, len(vals)):
                     q, r, a = vals[i], vals[j], vals[k]
-                    if q > 0 and r > 0 and abs(q * r - a) <= max(1.0, 0.01 * a):
-                        cand = (k - i, i, j, k)
+                    if q > 0 and r > 0 and a > 0 and abs(q * r - a) <= max(1.0, 0.01 * a):
+                        # prefer: amount is the largest / last value, then adjacent columns
+                        cand = (a < max(vals), k != last and a != max(vals), k - i, i, j, k)
                         if best is None or cand < best:
                             best = cand
         if not best:
             continue
-        _, i, j, k = best
+        *_, i, j, k = best
         q, r, a = vals[i], vals[j], vals[k]
         first_num_start = nums[0][1]
         # leading serial number
         lead = clean[:first_num_start]
         name_end = nums[i][1]
-        name_part = clean[:name_end]
+        name_part = line[:name_end]
+        if sno_m:
+            name_part = name_part[sno_m.end():] if len(name_part) > sno_m.end() else name_part
         hsn = None
         for idx, (n, s, e, raw) in enumerate(nums):
             if idx in (i, j, k):
@@ -159,9 +173,8 @@ def parse_bill_text(text: str, ref_year: Optional[int] = None) -> dict:
             item["gst_rate"] = float(pct.group(1))
             if tail_nums:
                 item["gst_amount"] = tail_nums[0]
-        sno = re.match(r"^\s*(\d{1,3})[.)]?\s", lead + " ")
-        if sno:
-            item["row"] = int(sno.group(1))
+        if sno_m:
+            item["row"] = int(sno_m.group(1))
         items.append(item)
 
     data = {"bill_id": bill_id, "bill_date": bill_date.isoformat() if bill_date else None,
@@ -181,7 +194,7 @@ def parse_bill_text(text: str, ref_year: Optional[int] = None) -> dict:
 
 EFFECTIVE = re.compile(
     r"(w\.?\s*e\.?\s*f\.?|with\s*effect\s*from|effective\s*(from|date|on)?|valid\s*from|in\s*force\s*(from)?|"
-    r"applicable\s*(from|w\.e\.f)?|lagu|लागू|से\s*प्रभावी|प्रभावी\s*तिथि)\s*[:.\-]?\s*(.{0,30})", re.I)
+    r"applicable\s*(from|w\.e\.f)?|lagu|लागू|से\s*प्रभावी|प्रभावी\s*तिथि)\s*[:.\-]?\s*(?P<tail>.{0,30})", re.I)
 VALID_TO = re.compile(r"(valid\s*(till|upto|up\s*to|until)|till|upto)\s*[:.\-]?\s*(.{0,25})", re.I)
 
 
@@ -191,7 +204,7 @@ def parse_rate_list_text(text: str, tables: Optional[list[list[list[str]]]] = No
     lines = [l for l in t.splitlines() if l.strip()]
     eff = None
     for m in EFFECTIVE.finditer(t):
-        tail = m.group(4) or ""
+        tail = m.group("tail") or ""
         eff = parse_date(tail, ref_year=ref_year)
         if not eff:
             # "lagu" in Hindi often follows the date: "3 Oct 2026 se lagu"
@@ -316,6 +329,7 @@ def _rate_rows_from_lines(lines: list[str]) -> list[dict]:
         if re.search(r"(authori[sz]ed|signature|signatory|note|terms|w\.?e\.?f)", low):
             continue
         clean = re.sub(r"(\d+(?:\.\d+)?)\s*%", r" \1 ", line)
+        clean = re.sub(r"^\s*\d{1,3}[.)]?\s+(?=[A-Za-z\u0900-\u097f])", "", clean)   # leading serial number
         nums = list(_numbers(clean))
         if not nums:
             continue

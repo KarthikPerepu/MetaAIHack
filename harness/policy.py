@@ -117,7 +117,7 @@ def enforce_escalation_cap(findings: list[Finding], policy: Policy) -> tuple[lis
     def share(fs):
         return (sum(f.status != Status.CONFIRMED for f in fs) / len(fs)) if fs else 0.0
 
-    if share(findings) <= policy.escalation_target:
+    if len(findings) < 5 or share(findings) <= policy.escalation_target:
         return findings, notes
     # A: one open question per bill (keep the most important)
     by_bill = defaultdict(list)
@@ -151,8 +151,9 @@ def enforce_escalation_cap(findings: list[Finding], policy: Policy) -> tuple[lis
             merged.add(id(x))
             notes.append(_note(x, f"covered by the request on {head.bill_id}"))
     findings = [f for f in findings if id(f) not in merged]
-    # C: last resort, keep the hard cap; conflicts are never removed
-    while share(findings) > policy.escalation_target:
+    # C: last resort, keep the hard cap; conflicts are never removed. Tiny reports
+    # (a single open question) are not "escalating most findings", so they are left alone.
+    while share(findings) > policy.escalation_cap:
         cds = sorted((f for f in findings if f.status == Status.CANNOT_DETERMINE),
                      key=lambda f: (-CD_PRIORITY.get(f.finding_class, 9), f.confidence))
         if not cds:

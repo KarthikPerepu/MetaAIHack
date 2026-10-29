@@ -350,10 +350,10 @@ class MessageAgent:
                 discount_pct=parse_number(s.get("discount_pct")),
                 discount_per_unit=parse_number(s.get("discount_per_unit")),
                 per_multiple=bool(s.get("per_multiple", True)), recurrence=rec, valid_until=until, source="llama"))
-        # Keep heuristic schemes the model missed (deterministic floor).
-        for hs in facts.schemes:
-            if not any(_same_scheme(hs, ms) for ms in schemes):
-                schemes.append(hs)
+        # The rules are the floor: used only when the model gave no valid scheme, so one
+        # offer is never counted twice under two readings.
+        if not schemes:
+            schemes = list(facts.schemes)
         out.schemes = schemes
         out.cancels_scheme = bool(data.get("cancels_scheme")) or facts.cancels_scheme
         if out.cancels_scheme and not schemes:

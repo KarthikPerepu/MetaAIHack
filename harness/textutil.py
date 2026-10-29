@@ -282,6 +282,9 @@ def normalize_bill_id(raw) -> str:
     m = re.fullmatch(r"([A-Z]{1,5})\s*[/\-_ ]\s*(\d{1,7})", s)
     if m:
         return f"{m.group(1)}/{m.group(2)}"
+    m = re.fullmatch(r"([A-Z0-9]{1,5})\s*[/\-_ ]\s*(\d{1,7})", s)
+    if m and re.search(r"[A-Z]", m.group(1)):
+        return f"{m.group(1)}/{m.group(2)}"
     return s.replace(" ", "")
 
 
