@@ -178,6 +178,12 @@ class IngestPipeline:
                     scores[s] += 1
         owners = [s for s, sc in scores.most_common() if sc >= 3]
         owner = owners[0] if owners else None
+        if owner is None and not known_owner:
+            # fallback: the most active person who is neither a company nor sends bills
+            plain = [s for s, sc in scores.most_common() if sc >= 0 and not split_person_company(s)[1]
+                     and not UNKNOWN_SENDER.match(s.strip())]
+            if plain:
+                owner = max(plain, key=lambda s: (senders[s], scores[s], s))
         if owner and owner not in known_owner:
             shop["owner_names"] = sorted(known_owner | {owner})
         if owner and not shop.get("shop_name"):

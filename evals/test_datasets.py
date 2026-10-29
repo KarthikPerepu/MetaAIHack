@@ -37,7 +37,7 @@ def test_practice_set(tmp_path):
     assert res["score"] == 100.0 and not res["capping_mistakes"], res
     gt = next(f for f in rep["findings"] if f["bill_id"] == "GT/1187" and f["class"] == "scheme_not_given")
     assert gt["confidence"] >= 0.97                        # owner confirmed it in feedback
-    assert any(c["code"] == "SP" for c in [json.loads((tmp_path / "distributors" / "SP.json").read_text())])
+    assert any(c["code"] == "SP" for c in [json.loads((tmp_path / "distributors" / "SP.json").read_text(encoding="utf-8"))])
 
 
 def test_exam_sheet(tmp_path):
