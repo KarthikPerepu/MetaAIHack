@@ -14,11 +14,12 @@ step after it.
 
 | Model | Use |
 |---|---|
-| Meta Llama vision model (default Llama 4 Maverick; any OpenAI-compatible host) | Reading bill photos, UPI screenshots, statements and scanned rate lists |
-| Meta Llama text model | Hinglish / Devanagari message understanding, PDF interpretation fallback, second opinion on suspicious forwards, product-name mapping, free-text owner feedback |
-| Whisper (open model, local, via faster-whisper) | Speech-to-text for voice notes |
+| Muse Spark 1.3 (vision), Meta Model API | Reading bill photos, UPI screenshots, statements and scanned rate lists |
+| Muse Spark 1.3 (text), Meta Model API | Hinglish / Devanagari message understanding, PDF interpretation fallback, second opinion on suspicious forwards, product-name mapping, free-text owner feedback |
+| Muse Voice Transcribe 1.0, Meta Model API | Speech-to-text for voice notes |
+| Whisper (open model, local, via faster-whisper) | Fallback speech-to-text when the Meta API is not configured |
 | Tesseract OCR (open source, local, optional) | Offline fallback for photos when no model key is set |
 
 Guard rails around the models: untrusted text is wrapped as data, every number a model returns must
 appear in the source, money is computed in Python, results are cached by file hash for reproducible
-reruns. Keys are read only from the environment (`LLAMA_API_KEY`, `LLAMA_BASE_URL`).
+reruns. Keys are read only from the environment or a git-ignored `.env` (`MODEL_API_KEY` / `LLAMA_API_KEY`, `MODEL_BASE_URL`).

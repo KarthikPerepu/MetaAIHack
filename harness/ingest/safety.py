@@ -87,7 +87,7 @@ def screen(text: str, *, forwarded: bool = False, trusted_sender: bool = True) -
 
 
 class SafetyScreen:
-    """Rules first; a Llama second opinion for forwarded / unknown-sender text."""
+    """Rules first; a Muse Spark second opinion for forwarded / unknown-sender text."""
 
     def __init__(self, llama: Optional[LlamaClient] = None):
         self.llama = llama

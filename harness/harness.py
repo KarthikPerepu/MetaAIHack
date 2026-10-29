@@ -46,7 +46,7 @@ def _components(state_dir: str):
     store = KnowledgeStore(state_dir)
     llama = LlamaClient(config.llama, cache_dir=store.cache_dir)
     if not llama.available:
-        log.warning("No LLAMA_API_KEY (or KHATA_OFFLINE=1): photos are read by local OCR / sidecars only, "
+        log.warning("No model key (MODEL_API_KEY / LLAMA_API_KEY) or KHATA_OFFLINE=1: photos are read by local OCR / sidecars only, "
                     "and messages by the deterministic parser.")
     return config, store, llama
 

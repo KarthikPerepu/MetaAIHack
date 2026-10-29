@@ -1,6 +1,6 @@
 """
 Vision agent: reads bill photos, UPI screenshots, statements and scanned rate
-lists with a Llama vision model.
+lists with Meta's vision model (Muse Spark on the Meta Model API).
 
 One prompt classifies and extracts. The result is validated against the
 document's own arithmetic. If the read looks wrong (unknown type, no rows,

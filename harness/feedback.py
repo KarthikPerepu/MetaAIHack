@@ -18,7 +18,7 @@ Each item becomes a normalised decision in <state>/feedback.json that every
 later report applies: rejected findings stay suppressed, confirmed ones get
 high confidence, answered questions unblock the check, conflict choices are
 remembered, and rates the owner says were agreed apply to later bills too.
-Free text is parsed by rules and, when available, by the Llama text model.
+Free text is parsed by rules and, when available, by the Meta text model (Muse Spark).
 """
 
 from __future__ import annotations

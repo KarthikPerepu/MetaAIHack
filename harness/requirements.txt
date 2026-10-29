@@ -1,6 +1,6 @@
 # Khata harness (Python 3.11+)
 
-# Llama models through any OpenAI-compatible endpoint (Meta Llama API, Together, Groq, Ollama...)
+# Meta Model API (Muse Spark) through the OpenAI-compatible SDK; also works with any host serving Llama
 openai>=1.30
 
 # PDFs

@@ -1,7 +1,8 @@
 # Khata (खाता) — find the money leaking out of a shop's WhatsApp
 
-Meta AI Hackathon 2026. A small set of Llama-powered agents reads a kirana shop's exported
-WhatsApp chats (chat text, bill photos, PDF rate lists, UPI screenshots, statements, Hinglish
+Meta Global AI Developer Hackathon 2026 (theme: *Build for Your World*). A small set of agents on
+the **Meta Model API** (Muse Spark for vision and text, Muse Voice Transcribe for voice notes) reads a
+kirana shop's exported WhatsApp chats (chat text, bill photos, PDF rate lists, UPI screenshots, statements, Hinglish
 voice notes), remembers on disk what each distributor agreed, and reports six kinds of leak
 with the rupee amount, the exact chat line or bill row that proves it, a confidence, and the
 action that is safe in the chosen mode.
@@ -26,7 +27,7 @@ How it works, the decisions behind it, and the limits: **[DESIGN.md](DESIGN.md)*
 make setup            # Python 3.11+ venv from harness/requirements.txt
 make grade            # replay practice weeks (+ owner feedback), print the score card
 make sheet            # exam chats -> answer_sheet.json (per class: count, rupees, bill ids)
-make eval             # 85 eval cases + our two-week eval shop, graded
+make eval             # 89 eval cases + our two-week eval shop, graded
 make demo             # eval shop from real photos / PDFs only (sidecar JSON ignored)
 ```
 
@@ -42,37 +43,54 @@ python harness/harness.py feedback data/practice/feedback/feedback.json --state-
 
 `report` also takes `--mode autonomous` and `-o file.json`; `sheet` takes the same flags as `report`.
 
-## Models and keys
+## Meta models and your API key
 
-Keys come only from the environment (never from files in the repo):
-
-| Variable | Meaning |
+| Meta model (Meta Model API, `https://api.meta.ai/v1`) | What Khata uses it for |
 |---|---|
-| `LLAMA_API_KEY` (alias `MODEL_API_KEY`) | key for an OpenAI-compatible endpoint serving Meta Llama |
-| `LLAMA_BASE_URL` | default `https://api.llama.com/compat/v1`; also Together, Groq, a local Ollama… |
-| `LLAMA_VISION_MODEL`, `LLAMA_TEXT_MODEL` | default `Llama-4-Maverick-17B-128E-Instruct-FP8` (set the id your host uses) |
-| `WHISPER_MODEL` | open Whisper size for voice notes (default `small`, runs locally, no key) |
+| **Muse Spark** (`muse-spark-1.3`), vision | reading bill photos (auto-retried at 90/270/180° for sideways photos), UPI screenshots, statements, scanned rate lists |
+| **Muse Spark**, text | understanding Hinglish / Devanagari chat and voice transcripts (schemes, spoken rates, credit terms, payment claims), PDFs the table parser cannot read, mapping bill items to rate-list names, a second opinion on suspicious forwards, free-text owner feedback |
+| **Muse Voice Transcribe** (`muse-voice-transcribe-1.0`) | WhatsApp voice notes (`.opus` → 16 kHz WAV → `/v1/asr/transcribe`) |
+
+Rupee arithmetic is always done in Python, and every number a model returns must appear in the source.
+
+**Where the key goes:** copy `.env.example` to `.env` in the project folder and replace
+`paste-your-key-here` with your Meta Model API key. That is the only place. `.env` is git-ignored,
+so it never reaches GitHub. Everything else has working defaults.
+
+Or, for one PowerShell session only:
+
+```powershell
+$env:MODEL_API_KEY = "your-key"
+```
+
+| Setting (in `.env` or the environment) | Default |
+|---|---|
+| `MODEL_API_KEY` | none: required for Muse (alias `LLAMA_API_KEY`) |
+| `MODEL_BASE_URL` | `https://api.meta.ai/v1` |
+| `MODEL_VISION_MODEL`, `MODEL_TEXT_MODEL` | `muse-spark-1.3` |
+| `MODEL_VOICE_MODEL` | `muse-voice-transcribe-1.0` (local Whisper `WHISPER_MODEL=small` if unavailable) |
+| `MODEL_REASONING_EFFORT` | `low`: reading a bill is not a hard problem, and it saves credit |
 | `KHATA_OFFLINE=1` | never call a model; deterministic readers only |
 | `KHATA_IGNORE_SIDECARS=1` | ignore `<file>.json` / `<file>.txt` extraction caches and read the real media |
 
-Easiest: copy `.env.example` to `.env` in the project folder and paste your key there. `.env` is
-git-ignored, so it never reaches GitHub. Or set the variables for one terminal session:
+Credit use: `make eval` / `.\run.ps1 eval` never calls the API (free). Every model answer is cached
+under `--state-dir`, so re-running a report on the same files is free too. Without a key the harness
+still runs: PDFs via pdfplumber, photos via tesseract OCR (if installed), messages via the rule-based
+Hinglish / Devanagari parser, voice via local Whisper.
 
-```powershell
-$env:LLAMA_API_KEY = "..."; $env:LLAMA_BASE_URL = "https://api.llama.com/compat/v1"
-```
+To run on open Llama weights instead (the problem statement allows "any host or locally"), point
+`MODEL_BASE_URL` at an OpenAI-compatible host such as a local Ollama and set the model ids; see
+`.env.example`. The client adapts if a model rejects an option (`reasoning_effort`,
+`max_completion_tokens`, `temperature`, the `system` role).
 
-The eval suite (`make eval`) never calls the API, so it costs nothing; model answers are cached under
-`--state-dir`, so re-running a report on the same files is free too.
+## Hackathon fit
 
-Where Llama is used: reading bill photos, UPI screenshots and statements (vision, with rotation
-retry for sideways photos), interpreting PDFs that the table parser cannot, understanding Hinglish /
-Devanagari messages and transcripts, a second opinion on suspicious forwarded messages, mapping
-bill item names to rate-list names, and parsing free-text owner feedback. Rupee arithmetic is always
-done in Python, and every number the model returns must appear in the source text.
-
-Without a key the harness still runs: PDFs via pdfplumber, photos via tesseract OCR (if installed),
-messages via the rule-based Hinglish / Devanagari parser.
+| Judging criterion (reported weights) | Where it shows |
+|---|---|
+| Impact (30%) | small shops lose money on every mis-billed distributor bill; Khata finds it with proof and drafts the Hinglish WhatsApp reply |
+| Use of Meta's AI tools (25%) | Muse Spark vision + text and Muse Voice Transcribe, all through the Meta Model API (table above) |
+| Demo (25%) | `make demo` / `.\run.ps1 demo` on real photos; a 3-minute video script is in [DEMO.md](DEMO.md) |
+| Technical depth (20%) | as-of reasoning over dated records, guard-railed model use, 89 eval cases, strict grader: [DESIGN.md](DESIGN.md) |
 
 ## Results (local grader, `grader/grader.py`)
 
@@ -144,7 +162,7 @@ harness/
   knowledge/            records with provenance; on-disk store
   data/gst_rates.json   HSN -> GST
 grader/grader.py        strict local grader
-evals/                  85 eval cases; fixtures/ (scenario builder, media renderer); scenarios/annapurna/
+evals/                  89 eval cases; fixtures/ (scenario builder, media renderer); scenarios/annapurna/
 scripts/                render_data_media.py, make_eval_shop.py
 data/                   practice, exam, worked examples
 ```
