@@ -20,3 +20,8 @@ Thumbs.db
 
 # State runtime data (transient runs)
 # state/
+
+# runtime state and generated reports
+state/
+report_*.json
+!data/**

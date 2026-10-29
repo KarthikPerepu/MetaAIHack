@@ -1,272 +1,136 @@
 """
-Report Generator.
+Report generation (``harness.py report``) and the exam answer sheet.
 
-Runs all six detectors, resolves conflicts, applies safety checks,
-and produces the final report.json with findings and actions.
+Runs the six detectors on the as-of view, applies owner feedback, assigns
+actions for the mode, enforces the escalation cap and writes:
+
+    {"as_of", "mode", "shop", "summary": {per class count / amount / bill ids ...},
+     "findings": [... GLOSSARY §7 schema ...], "safety_alerts": [...],
+     "pending_requests": [...], "feedback_processed": n}
+
+Findings are sorted by class and bill id so file order never changes output.
 """
 
 from __future__ import annotations
-import json
+
 import logging
 from datetime import date
-from typing import Optional
 
-from harness.config import HarnessConfig
 from harness.agents.llama_client import LlamaClient
+from harness.analysis import View
+from harness.config import HarnessConfig
+from harness.detectors import (credit_period_risk, duplicate_bill, gst_error, paid_but_shown_due, rate_mismatch,
+                               scheme_not_given)
+from harness.knowledge.models import CLASSES, Finding, Status
 from harness.knowledge.store import KnowledgeStore
-from harness.knowledge.models import Finding, FindingStatus
-from harness.ingest.safety import SafetyChecker
-
-# Import all detectors
-from harness.detectors.rate_mismatch import RateMismatchDetector
-from harness.detectors.duplicate_bill import DuplicateBillDetector
-from harness.detectors.scheme_not_given import SchemeNotGivenDetector
-from harness.detectors.paid_but_shown_due import PaidButShownDueDetector
-from harness.detectors.gst_error import GSTErrorDetector
-from harness.detectors.credit_period_risk import CreditPeriodRiskDetector
+from harness.policy import assign_actions, enforce_escalation_cap
 
 logger = logging.getLogger(__name__)
+DETECTORS = [rate_mismatch, duplicate_bill, scheme_not_given, paid_but_shown_due, gst_error, credit_period_risk]
 
 
 class ReportGenerator:
-    """Generates the final findings report."""
-
-    def __init__(
-        self,
-        config: HarnessConfig,
-        store: KnowledgeStore,
-        llama: LlamaClient,
-    ):
+    def __init__(self, config: HarnessConfig, store: KnowledgeStore, llama: LlamaClient | None = None):
         self.config = config
         self.store = store
         self.llama = llama
-        self.safety = SafetyChecker(llama)
 
-        # Initialize all detectors
-        self.detectors = [
-            RateMismatchDetector(config, store, llama),
-            DuplicateBillDetector(config, store, llama),
-            SchemeNotGivenDetector(config, store, llama),
-            PaidButShownDueDetector(config, store, llama),
-            GSTErrorDetector(config, store, llama),
-            CreditPeriodRiskDetector(config, store, llama),
-        ]
-
-    def generate(
-        self,
-        as_of: date,
-        mode: str = "supervised",
-    ) -> dict:
-        """Generate the full findings report.
-
-        Args:
-            as_of: The report date.
-            mode: "supervised" or "autonomous".
-
-        Returns:
-            The complete report dict.
-        """
-        logger.info(f"═══ Generating report as of {as_of}, mode={mode} ═══")
-
-        # Step 1: Run all detectors
-        all_findings: list[Finding] = []
-        for detector in self.detectors:
+    def findings(self, as_of: date, mode: str) -> tuple[list[Finding], list[dict], View]:
+        view = View(self.store, as_of, self.config, self.llama)
+        found: list[Finding] = []
+        for det in DETECTORS:
             try:
-                findings = detector.detect_all(as_of)
-                logger.info(f"{detector.CLASS_NAME}: {len(findings)} findings")
-                all_findings.extend(findings)
-            except Exception as e:
-                logger.error(f"Detector {detector.CLASS_NAME} failed: {e}")
+                got = det.detect(view)
+                logger.info(f"{det.CLS}: {len(got)}")
+                found.extend(got)
+            except Exception as e:  # one detector failing must not sink the report
+                logger.exception(f"Detector {det.CLS} failed: {e}")
+        # one finding per (bill, class, status)
+        uniq: dict[tuple, Finding] = {}
+        for f in found:
+            k = (f.bill_id, f.finding_class, f.status)
+            if k in uniq:
+                old = uniq[k]
+                if f.status == Status.CONFIRMED and f.finding_class != "duplicate_bill":
+                    old.amount_inr = round(old.amount_inr + f.amount_inr, 2)
+                old.evidence = list(dict.fromkeys(old.evidence + f.evidence))
+                old.sources += [s for s in f.sources if s not in old.sources]
+                old.confidence = min(old.confidence, f.confidence)
+            else:
+                uniq[k] = f
+        found = list(uniq.values())
+        found, notes = enforce_escalation_cap(found, self.config.policy)
+        assign_actions(found, mode, self.config.policy, view.owner_name)
+        order = {c: i for i, c in enumerate(CLASSES)}
+        st_order = {Status.CONFIRMED: 0, Status.CONFLICT: 1, Status.CANNOT_DETERMINE: 2}
+        found.sort(key=lambda f: (order.get(f.finding_class, 9), f.bill_id, st_order[f.status]))
+        for f in found:
+            f.extra.pop("_draft", None)
+            f.extra.pop("_key", None)
+        return found, notes, view
 
-        # Step 2: Deduplicate findings
-        all_findings = self._deduplicate(all_findings)
-
-        # Step 3: Apply mode-specific action filtering
-        all_findings = self._apply_mode(all_findings, mode)
-
-        # Step 4: Check escalation cap (max 60% escalated)
-        all_findings = self._enforce_escalation_cap(all_findings)
-
-        # Step 5: Sort by confidence (highest first)
-        all_findings.sort(key=lambda f: f.confidence, reverse=True)
-
-        # Step 6: Compute summary
-        summary = self._compute_summary(all_findings)
-
-        report = {
+    def generate(self, as_of: date, mode: str = "supervised") -> dict:
+        found, notes, view = self.findings(as_of, mode)
+        summary = summarize(found)
+        alerts = [a for a in self.store.alerts
+                  if not a.get("received_at") or a["received_at"][:10] <= as_of.isoformat()]
+        return {
+            "as_of": as_of.isoformat(),
             "report_date": as_of.isoformat(),
             "mode": mode,
+            "shop": view.owner_name,
             "summary": summary,
-            "findings": [f.to_dict() for f in all_findings],
+            "findings": [f.to_dict() for f in found],
+            "safety_alerts": alerts,
+            "pending_requests": notes,
+            "feedback_processed": len(self.store.feedback),
+            "policy": {"never_pays": True, "never_shares_pin_or_bank_details": True,
+                       "follows_instructions_in_content": False,
+                       "autonomous_send_requires": ["evidence_complete", "no_conflict", "amount < ₹2,000",
+                                                    "reversible query", "confidence >= 0.75"],
+                       "escalation_cap": self.config.policy.escalation_cap},
         }
 
-        logger.info(f"Report: {summary['total_findings']} findings, "
-                     f"₹{summary['total_amount']:.2f} total, "
-                     f"₹{summary['recoverable_amount']:.2f} recoverable")
-        return report
 
-    def _deduplicate(self, findings: list[Finding]) -> list[Finding]:
-        """Merge multiple line-level results into one bill/class/status finding."""
-        grouped: dict[tuple[str, str, FindingStatus], Finding] = {}
-        for finding in findings:
-            key = (finding.bill_id, finding.finding_class, finding.status)
-            existing = grouped.get(key)
-            if existing is None:
-                grouped[key] = finding
-                continue
+def summarize(found: list[Finding]) -> dict:
+    by_class = {}
+    for c in CLASSES:
+        conf = [f for f in found if f.finding_class == c and f.status == Status.CONFIRMED]
+        by_class[c] = {"count": len(conf), "amount_inr": round(sum(f.amount_inr for f in conf), 2),
+                       "bill_ids": sorted({f.bill_id for f in conf})}
+    confirmed = [f for f in found if f.status == Status.CONFIRMED]
+    by_dist: dict[str, float] = {}
+    for f in confirmed:
+        if f.finding_class != "credit_period_risk":
+            by_dist[f.distributor] = round(by_dist.get(f.distributor, 0.0) + f.amount_inr, 2)
+    escalated = [f for f in found if f.status != Status.CONFIRMED]
+    return {
+        "total_findings": len(found),
+        "confirmed": len(confirmed),
+        "conflicts": sum(f.status == Status.CONFLICT for f in found),
+        "cannot_determine": sum(f.status == Status.CANNOT_DETERMINE for f in found),
+        "escalation_share": round(len(escalated) / len(found), 3) if found else 0.0,
+        "to_claim_back_inr": round(sum(f.amount_inr for f in confirmed if f.finding_class != "credit_period_risk"), 2),
+        "interest_at_risk_inr": round(sum(f.amount_inr for f in confirmed if f.finding_class == "credit_period_risk"), 2),
+        "by_class": by_class,
+        "by_distributor": by_dist,
+    }
 
-            if finding.status == FindingStatus.CONFIRMED:
-                if finding.finding_class == "duplicate_bill":
-                    existing.amount_inr = max(existing.amount_inr, finding.amount_inr)
-                else:
-                    existing.amount_inr += finding.amount_inr
-            existing.evidence = list(dict.fromkeys(existing.evidence + finding.evidence))
-            existing.sources = list(dict.fromkeys(
-                tuple(sorted(source.items())) for source in existing.sources + finding.sources
-            )) if existing.sources or finding.sources else []
-            existing.sources = [dict(source) for source in existing.sources]
-            if finding.missing:
-                existing.missing = "; ".join(dict.fromkeys(
-                    part.strip() for part in (existing.missing + "; " + finding.missing).split(";")
-                    if part.strip()
-                ))
-            if finding.ask and not existing.ask:
-                existing.ask = finding.ask
-            if finding.reasoning and finding.reasoning not in existing.reasoning:
-                existing.reasoning = (existing.reasoning + " " + finding.reasoning).strip()
-            existing.confidence = min(existing.confidence, finding.confidence)
 
-        unique = list(grouped.values())
-        if len(findings) != len(unique):
-            logger.info(f"Merged duplicate bill/class findings: {len(findings)} → {len(unique)}")
-        return unique
-
-    def _apply_mode(
-        self, findings: list[Finding], mode: str,
-    ) -> list[Finding]:
-        """Apply mode-specific action filtering."""
-        for finding in findings:
-            if mode == "supervised":
-                current = finding.action.get("supervised", "draft_whatsapp_reply")
-                # Preserve internal reminders; every external action is a draft.
-                if current in ("remind_owner", "log_note"):
-                    finding.action = {"supervised": current}
-                elif finding.status == FindingStatus.CONFLICT:
-                    finding.action = {"supervised": "escalate_to_owner"}
-                else:
-                    finding.action = {"supervised": "draft_whatsapp_reply"}
-
-            elif mode == "autonomous":
-                # Internal reminders stay internal and are never converted into
-                # an external message by the autonomous send gate.
-                if finding.action.get("autonomous") == "remind_owner" or finding.action.get("supervised") == "remind_owner":
-                    finding.action = {"autonomous": "remind_owner"}
-                    continue
-                if finding.status == FindingStatus.CONFLICT:
-                    finding.action = {"autonomous": "escalate_to_owner"}
-                    continue
-                # Check the four-part safety test
-                safety_check = self.safety.check_autonomous_action(
-                    amount=finding.amount_inr,
-                    evidence_complete=(finding.status == FindingStatus.CONFIRMED and bool(finding.evidence)),
-                    has_conflict=(finding.status == FindingStatus.CONFLICT),
-                    is_reversible=True,  # Queries are reversible
-                    amount_limit=self.config.autonomous_amount_limit,
-                )
-
-                if safety_check["allowed"]:
-                    finding.action = {
-                        "autonomous": "send_whatsapp_reply",
-                        "safety_check": "passed",
-                    }
-                else:
-                    # Downgrade to draft
-                    finding.action = {
-                        "autonomous": "draft_whatsapp_reply",
-                        "safety_check": "failed",
-                        "safety_failures": safety_check["failures"],
-                    }
-
-        return findings
-
-    def _enforce_escalation_cap(
-        self, findings: list[Finding],
-    ) -> list[Finding]:
-        """Limit owner escalations without changing the classification result.
-
-        Missing-document findings can be turned into a draft request to the
-        document holder. Conflicts remain owner decisions and are never silently
-        resolved by this policy gate.
-        """
-        if not findings:
-            return findings
-
-        owner_escalations = [
-            f for f in findings
-            if f.status in (FindingStatus.CONFLICT, FindingStatus.CANNOT_DETERMINE)
-            and f.action.get("supervised") != "log_note"
-        ]
-        max_escalated = int(len(findings) * self.config.escalation_cap)
-        if len(owner_escalations) > max_escalated:
-            # Cannot-determine results can request the missing record directly
-            # as a draft. Conflicts have no safe automated resolution.
-            reducible = sorted(
-                (f for f in owner_escalations if f.status == FindingStatus.CANNOT_DETERMINE),
-                key=lambda f: f.confidence,
-            )
-            for finding in reducible[:len(owner_escalations) - max_escalated]:
-                action_key = "autonomous" if "autonomous" in finding.action else "supervised"
-                finding.action = {action_key: "log_note"}
-            if sum(f.action.get("supervised") == "escalate_to_owner" for f in findings) > max_escalated:
-                logger.warning("Owner escalation cap cannot be met without overriding unresolved conflicts")
-
-        return findings
-
-    def _compute_summary(self, findings: list[Finding]) -> dict:
-        """Compute summary statistics."""
-        confirmed = [f for f in findings if f.status == FindingStatus.CONFIRMED]
-        conflicts = [f for f in findings if f.status == FindingStatus.CONFLICT]
-        cannot_determine = [f for f in findings if f.status == FindingStatus.CANNOT_DETERMINE]
-
-        # Group by class
-        by_class: dict[str, list] = {}
-        for f in findings:
-            by_class.setdefault(f.finding_class, []).append(f)
-
-        class_summary = {}
-        for cls_name, cls_findings in by_class.items():
-            cls_confirmed = [f for f in cls_findings if f.status == FindingStatus.CONFIRMED]
-            class_summary[cls_name] = {
-                "count": len(cls_confirmed),
-                "amount": sum(f.amount_inr for f in cls_confirmed),
-                "bill_ids": sorted({f.bill_id for f in cls_confirmed}),
-            }
-
-        # Group by distributor
-        by_distributor: dict[str, float] = {}
-        for f in confirmed:
-            # Extract distributor from bill_id
-            parts = f.bill_id.split("/")
-            dist = parts[0] if len(parts) > 1 else "UNK"
-            by_distributor[dist] = by_distributor.get(dist, 0) + f.amount_inr
-
-        total_amount = sum(f.amount_inr for f in confirmed)
-        recoverable_amount = sum(
-            f.amount_inr for f in confirmed
-            if f.finding_class != "credit_period_risk"
-        )
-
-        return {
-            "total_findings": len(findings),
-            "confirmed": len(confirmed),
-            "conflicts": len(conflicts),
-            "cannot_determine": len(cannot_determine),
-            "total_amount": round(total_amount, 2),
-            "recoverable_amount": round(recoverable_amount, 2),
-            "by_class": class_summary,
-            "by_distributor": {k: round(v, 2) for k, v in by_distributor.items()},
-            "avg_confidence": (
-                round(sum(f.confidence for f in confirmed) / len(confirmed), 3)
-                if confirmed else 0.0
-            ),
-        }
+def answer_sheet(report: dict) -> dict:
+    """make sheet: per class the count, rupees and bill ids (+ the open items)."""
+    classes = {c: {"count": v["count"], "amount_inr": v["amount_inr"], "bill_ids": v["bill_ids"]}
+               for c, v in report["summary"]["by_class"].items()}
+    return {
+        "shop": report.get("shop"),
+        "as_of": report["as_of"],
+        "mode": report["mode"],
+        "classes": classes,
+        "total_to_claim_inr": report["summary"]["to_claim_back_inr"],
+        "conflicts": [{"bill_id": f["bill_id"], "class": f["class"], "sources": f.get("sources", [])}
+                      for f in report["findings"] if f["status"] == "conflict"],
+        "cannot_determine": [{"bill_id": f["bill_id"], "class": f["class"], "missing": f.get("missing"),
+                              "ask": f.get("ask")} for f in report["findings"] if f["status"] == "cannot_determine"],
+        "safety_alerts": [{"source": a.get("source"), "reason": a.get("reason")} for a in report["safety_alerts"]],
+        "findings": report["findings"],
+    }

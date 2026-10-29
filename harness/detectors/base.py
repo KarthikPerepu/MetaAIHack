@@ -1,144 +1,83 @@
 """
-Base Detector.
+Shared helpers for the six detectors.
 
-Abstract base class for all six detection classes.
+Confidence is "the probability that both the verdict and the amount are
+right". It is built from the reliability of each fact the finding depends on
+(bill read quality, source authority, product match, whether the rate in
+force is certain, corroboration) so that shakier findings score lower.
 """
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
-from datetime import date
-from typing import Optional
-import logging
 
-from harness.config import HarnessConfig
-from harness.agents.llama_client import LlamaClient
-from harness.knowledge.store import KnowledgeStore
-from harness.knowledge.models import Finding, FindingStatus, DistributorCard, Bill
+import hashlib
+from typing import Iterable, Optional
 
-logger = logging.getLogger(__name__)
+from harness.analysis import View
+from harness.knowledge.models import AUTHORITY_WEIGHT, Authority, Bill, Finding, Status
 
 
-class BaseDetector(ABC):
-    """Base class for all bill discrepancy detectors."""
+def bill_read_factor(bill: Bill) -> float:
+    f = 0.80 + 0.20 * max(0.0, min(1.0, bill.ocr_confidence))
+    if not bill.arithmetic_ok:
+        f *= 0.90
+    if bill.injected_text:
+        f *= 0.95
+    return f
 
-    # Override in subclass
-    CLASS_NAME: str = "unknown"
 
-    def __init__(
-        self,
-        config: HarnessConfig,
-        store: KnowledgeStore,
-        llama: LlamaClient,
-    ):
-        self.config = config
-        self.store = store
-        self.llama = llama
+def authority_factor(auth: Authority, stt: float = 1.0, kind: str = "chat") -> float:
+    base = {Authority.SIGNED_RATE_LIST: 1.0, Authority.OWNER: 0.98, Authority.NAMED_SALESMAN: 0.95,
+            Authority.IDENTIFIED_PERSON: 0.82, Authority.UNKNOWN: 0.6, Authority.FORWARDED: 0.3}[auth]
+    if kind == "voice":
+        base *= 0.86 + 0.14 * max(0.0, min(1.0, stt))
+    return base
 
-    @abstractmethod
-    def detect(
-        self,
-        card: DistributorCard,
-        bill: Bill,
-        as_of: date,
-    ) -> list[Finding]:
-        """Run detection on a single bill.
 
-        Args:
-            card: The distributor's knowledge card.
-            bill: The bill to check.
-            as_of: The "as of" date for the report.
+def match_factor(score: float) -> float:
+    if score >= 99:
+        return 1.0
+    if score >= 92:
+        return 0.97
+    if score >= 85:
+        return 0.93
+    return 0.88
 
-        Returns:
-            List of findings (may be empty if bill is clean for this class).
-        """
-        raise NotImplementedError
 
-    def detect_all(self, as_of: date) -> list[Finding]:
-        """Run detection across all distributors and bills.
+def combine(*factors: float, start: float = 0.97) -> float:
+    p = start
+    for f in factors:
+        p *= f
+    return round(max(0.05, min(0.98, p)), 3)
 
-        Returns:
-            All findings across all bills.
-        """
-        all_findings: list[Finding] = []
 
-        for card in self.store.list_distributors():
-            for bill in sorted(card.bills, key=lambda b: (b.bill_date, b.bill_id)):
-                if bill.bill_date > as_of:
-                    continue
-                try:
-                    findings = self.detect(card, bill, as_of)
-                    all_findings.extend(findings)
-                except Exception as e:
-                    logger.error(f"Detection failed for {bill.bill_id}: {e}")
+def finding_key(cls: str, bill_id: str, status: Status, extra: str = "") -> str:
+    return hashlib.sha1(f"{cls}|{bill_id}|{status.value}|{extra}".encode()).hexdigest()[:12]
 
-        return all_findings
 
-    def _make_finding(
-        self,
-        bill: Bill,
-        status: FindingStatus,
-        amount: float = 0.0,
-        evidence: list[str] = None,
-        reasoning: str = "",
-        confidence: float = 0.0,
-        sources: list[dict] = None,
-        missing: str = "",
-        ask: str = "",
-    ) -> Finding:
-        """Helper to create a Finding object."""
-        # Determine action based on mode
-        action = {}
-        if status == FindingStatus.CONFIRMED:
-            action = {
-                "supervised": "draft_whatsapp_reply",
-                "autonomous": "send_whatsapp_reply",
-            }
-        elif status == FindingStatus.CONFLICT:
-            action = {"supervised": "escalate_to_owner"}
-        elif status == FindingStatus.CANNOT_DETERMINE:
-            action = {"supervised": "request_document"}
+def make(cls: str, bill_id: str, status: Status, *, distributor: str, amount: float = 0.0,
+         evidence: Iterable[Optional[str]] = (), reasoning: str = "", confidence: float = 0.5, **kw) -> Finding:
+    ev = [e for e in evidence if e]
+    ev = list(dict.fromkeys(ev))
+    f = Finding(bill_id=bill_id, finding_class=cls, status=status, distributor=distributor,
+                amount_inr=round(max(0.0, amount), 2), evidence=ev, reasoning=reasoning, confidence=confidence, **kw)
+    f.key = finding_key(cls, bill_id, status, kw.get("extra", {}).get("_key", "") if kw.get("extra") else "")
+    return f
 
-        return Finding(
-            bill_id=bill.bill_id,
-            finding_class=self.CLASS_NAME,
-            status=status,
-            amount_inr=amount,
-            evidence=evidence or [],
-            reasoning=reasoning,
-            confidence=confidence,
-            action=action,
-            sources=sources or [],
-            missing=missing,
-            ask=ask,
-        )
 
-    def _compute_base_confidence(
-        self,
-        bill: Bill,
-        has_rate_list: bool = True,
-        sources_agree: bool = True,
-    ) -> float:
-        """Compute a base confidence score."""
-        confidence = 0.5
-
-        # OCR quality
-        if bill.ocr_confidence >= 0.9:
-            confidence += 0.15
-        elif bill.ocr_confidence >= 0.7:
-            confidence += 0.05
-        else:
-            confidence -= 0.15
-
-        # Rate list available
-        if has_rate_list:
-            confidence += 0.15
-        else:
-            confidence -= 0.1
-
-        # Sources agree
-        if sources_agree:
-            confidence += 0.1
-        else:
-            confidence -= 0.1
-
-        return max(0.0, min(1.0, confidence))
+def owner_adjust(view: View, f: Finding) -> Optional[Finding]:
+    """Apply an owner verdict from feedback: rejected -> suppressed; confirmed -> high confidence."""
+    v = view.verdict(f.bill_id, f.finding_class)
+    if not v:
+        return f
+    if v.get("verdict") == "rejected":
+        return None
+    if v.get("verdict") == "confirmed":
+        f.confidence = max(f.confidence, 0.97)
+        f.extra["owner_confirmed"] = True
+        if v.get("amount") is not None and f.status == Status.CONFIRMED:
+            try:
+                f.amount_inr = round(float(v["amount"]), 2)
+                f.extra["amount_set_by_owner"] = True
+            except (TypeError, ValueError):
+                pass
+    return f

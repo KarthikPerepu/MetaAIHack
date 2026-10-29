@@ -1,697 +1,728 @@
 """
-Ingest Pipeline Orchestrator.
+Ingest one week of WhatsApp exports into the khata (``harness.py ingest``).
 
-Processes a week_dir of WhatsApp exports:
-1. Parse _chat.txt
-2. OCR bill photos (Llama Vision)
-3. Parse PDF rate lists
-4. Transcribe voice notes (Whisper)
-5. Parse UPI screenshots (Llama Vision)
-6. Build/update distributor knowledge cards
-7. Safety check all messages
+1. Find chat exports (any *.txt that looks like one, in any sub-folder) and parse them.
+2. Read every attachment once (vision / PDF / OCR / speech-to-text, cached by file hash).
+3. Work out who is the shop owner and which distributor each sender belongs to,
+   from display names, bill numbers on the documents they send, payee names and
+   chat-file names. Nothing is hard-coded to the practice shops.
+4. Screen every message, document text and transcript for injected instructions.
+   Quarantined content never becomes a fact.
+5. Turn messages and documents into dated records on each distributor's card:
+   bills, rate lists, schemes, spoken rates, credit terms, payments, payment
+   claims, statements and deliveries.
+6. Save state atomically. Re-ingesting the same week is idempotent.
 """
 
 from __future__ import annotations
+
+import hashlib
+import json
 import logging
 import re
-from datetime import date, datetime
+from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from harness.config import HarnessConfig
 from harness.agents.llama_client import LlamaClient
+from harness.agents.message_agent import MessageAgent, MessageFacts
+from harness.config import HarnessConfig
+from harness.ingest.chat_parser import ChatMessage, is_chat_file, media_kind, parse_chat_file
+from harness.ingest.documents import DocResult, DocumentReader, file_hash
+from harness.ingest.safety import SafetyScreen
+from harness.knowledge.models import (Authority, Bill, BillLine, Contact, CreditTerms, DeliveryEvent,
+                                      DistributorCard, Payment, PaymentClaim, RateEntry, RateList, RateQuote,
+                                      Scheme, SourceRef, Statement, StatementEntry)
 from harness.knowledge.store import KnowledgeStore
-from harness.knowledge.models import (
-    RateList, RateQuote, Bill, Scheme, Payment, SchemeType, SourceType,
-    AuthorizedPerson, Statement, StatementEntry, DistributorCard,
-)
-from harness.ingest.chat_parser import parse_chat_file, ChatMessage
-from harness.ingest.bill_ocr import extract_bill_from_image, extract_statement_from_image
-from harness.ingest.pdf_parser import parse_rate_list
-from harness.ingest.voice_stt import transcribe_voice_note
-from harness.ingest.upi_parser import extract_upi_payment
-from harness.ingest.safety import SafetyChecker
-from harness.ingest.parse_utils import parse_finite_number, parse_iso_date
+from harness.textutil import (bill_prefix, best_product_match, clean_text, end_of_day, find_bill_ids,
+                              initials, name_tokens, norm_product, normalize_bill_id, product_similarity,
+                              split_person_company)
 
 logger = logging.getLogger(__name__)
 
+MEDIA_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".pdf", ".opus", ".ogg", ".mp3", ".m4a", ".aac",
+                  ".wav", ".amr"}
+UNKNOWN_SENDER = re.compile(r"^(unknown|\+?\d[\d\s\-]{6,}|~.*|forwarded)$", re.I)
+SHOP_WORDS = re.compile(r"\b(store|stores|kirana|general\s+store|mart|shop|dukaan|bhandar)\b", re.I)
+
+
+def _rid(*parts) -> str:
+    return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()[:16]
+
 
 class IngestPipeline:
-    """Orchestrates the full ingestion of a week's WhatsApp exports."""
-
-    def __init__(self, config: HarnessConfig, store: KnowledgeStore):
+    def __init__(self, config: HarnessConfig, store: KnowledgeStore, llama: Optional[LlamaClient] = None):
         self.config = config
         self.store = store
-        self.llama = LlamaClient(config.llama)
-        self.safety = SafetyChecker(self.llama)
-        self._recent_product_by_distributor: dict[str, str] = {}
-        self._stats = {
-            "messages_parsed": 0,
-            "bills_extracted": 0,
-            "rate_lists_parsed": 0,
-            "voice_notes_transcribed": 0,
-            "upi_payments_extracted": 0,
-            "schemes_found": 0,
-            "safety_blocks": 0,
-        }
+        self.llama = llama or LlamaClient(config.llama, cache_dir=store.cache_dir)
+        self.reader = DocumentReader(self.llama, store.cache_dir, ignore_sidecars=config.ignore_sidecars,
+                                     whisper_model=config.whisper_model)
+        self.safety = SafetyScreen(self.llama)
+        self.agent = MessageAgent(self.llama)
+        self.stats: Counter = Counter()
 
+    # ─────────────────────────────────────────────────────────
     def ingest(self, week_dir: str) -> dict:
-        """Ingest all files from a week directory.
-
-        Args:
-            week_dir: Path to the week directory containing WhatsApp exports.
-
-        Returns:
-            Stats about the ingestion.
-        """
-        week_path = Path(week_dir).resolve()
-        if not week_path.exists():
-            raise FileNotFoundError(f"Week directory not found: {week_path}")
-
-        logger.info(f"═══ Starting ingestion from {week_path} ═══")
-
-        # Step 1: Find and parse _chat.txt
-        chat_files = list(dict.fromkeys(
-            list(week_path.glob("*_chat.txt")) + list(week_path.glob("*chat*.txt"))
-        ))
-        if not chat_files:
-            # Also look for any .txt file that might be a chat
-            chat_files = list(week_path.glob("*.txt"))
-
+        week = Path(week_dir).resolve()
+        if not week.is_dir():
+            raise FileNotFoundError(f"Week directory not found: {week}")
+        self.week = week
+        self.week_label = week.name
+        chats = sorted((p for p in week.rglob("*.txt") if is_chat_file(p)), key=lambda p: str(p.relative_to(week)))
         messages: list[ChatMessage] = []
-        for chat_file in sorted(chat_files):
-            msgs = parse_chat_file(chat_file)
+        for chat in chats:
+            rel = str(chat.relative_to(week)).replace("\\", "/")
+            msgs = parse_chat_file(chat, chat_name=rel)
+            for m in msgs:
+                m._dir = chat.parent  # type: ignore[attr-defined]
+                m._chat_title = _chat_title(chat)  # type: ignore[attr-defined]
             messages.extend(msgs)
-            self._stats["messages_parsed"] += len(msgs)
+        messages.sort(key=lambda m: (m.timestamp, m.chat_file, m.line))
+        self.stats["messages"] = len(messages)
+        for i, m in enumerate(messages):
+            m._context = m.body  # type: ignore[attr-defined]
+            if m.attachments and len(m.body) < 6:
+                for prev in reversed(messages[max(0, i - 4):i]):
+                    if prev.sender == m.sender and prev.chat_file == m.chat_file and \
+                            timedelta(0) <= m.timestamp - prev.timestamp <= timedelta(minutes=15) and prev.body:
+                        m._context = (prev.body + " " + m.body).strip()  # type: ignore[attr-defined]
+                        break
+        self.ref_year = messages[0].timestamp.year if messages else date.today().year
 
-        logger.info(f"Parsed {len(messages)} chat messages")
+        self._load_contracts(week)
 
-        # Quarantine unsafe messages before they reach the distributor-identification
-        # prompt or any attachment parser. Also mark their attachments consumed so
-        # the loose-file fallback cannot silently process them afterward.
-        safe_messages: list[ChatMessage] = []
-        blocked_attachments: set[str] = set()
-        for msg in messages:
-            safety_result = self.safety.check_message(msg.text, msg.is_forwarded)
-            if safety_result["is_safe"]:
-                safe_messages.append(msg)
+        # Phase A: read every attachment referenced in chat
+        docs: dict[int, list[tuple[str, Path, DocResult]]] = defaultdict(list)
+        referenced: set[Path] = set()
+        for m in messages:
+            for att in m.attachments:
+                p = self._resolve(att, m)
+                if p is None:
+                    self.stats["attachments_missing"] += 1
+                    logger.warning(f"{m.cite()}: attachment not found: {att}")
+                    continue
+                referenced.add(p.resolve())
+                kind = media_kind(p.name)
+                res = self.reader.read(p, kind, hint=getattr(m, "_context", m.body), ref_year=self.ref_year)
+                docs[id(m)].append((att, p, res))
+                self.stats[f"read_{res.doc_type}"] += 1
+                if not res.readable:
+                    self.stats["unreadable"] += 1
+        loose = [p for p in sorted(week.rglob("*")) if p.is_file() and p.suffix.lower() in MEDIA_SUFFIXES
+                 and p.resolve() not in referenced]
+
+        # Phase B: identities
+        self._identify_people(messages, docs)
+
+        # Phase C: messages in time order
+        last_dist_by_chat: dict[str, tuple[str, datetime]] = {}
+        for m in messages:
+            if m.is_system or not m.sender:
                 continue
-            self._stats["safety_blocks"] += 1
-            if msg.attachment:
-                blocked_attachments.add(msg.attachment)
-            logger.warning(f"🛑 Blocked unsafe message from {msg.sender} "
-                           f"(line {msg.line_number}): {safety_result['details']}")
+            self._handle_message(m, docs.get(id(m), []), last_dist_by_chat)
 
-        # Step 2: Identify distributors and their contact persons from chat context
-        self._identify_distributors(safe_messages, week_path)
+        # Phase D: files nobody referenced in chat
+        for p in loose:
+            kind = media_kind(p.name)
+            res = self.reader.read(p, kind, ref_year=self.ref_year)
+            if not res.readable:
+                continue
+            src = SourceRef(file=p.name, week=self.week_label)
+            self._handle_document(res, src, sender_code=self._code_from_filename(p.name), message=None)
+            self.stats["loose_files"] += 1
 
-        # Step 3: Process attachments found in messages
-        processed_files: set[str] = set(blocked_attachments)
-
-        for msg in safe_messages:
-            # Process attachments
-            if msg.has_attachment and msg.attachment not in processed_files:
-                attachment_path = week_path / msg.attachment
-                if not attachment_path.exists():
-                    # Try alternate patterns
-                    candidates = list(week_path.glob(f"*{Path(msg.attachment).stem}*"))
-                    if candidates:
-                        attachment_path = candidates[0]
-                    else:
-                        logger.warning(f"Attachment not found: {msg.attachment}")
-                        continue
-
-                self._process_attachment(
-                    str(attachment_path),
-                    msg.attachment_type,
-                    msg.sender,
-                    msg,
-                )
-                processed_files.add(msg.attachment)
-
-            self._record_product_context(msg)
-            # Process scheme offers in chat text
-            self._process_rate_quote(msg.text, msg.sender, msg.timestamp,
-                                     SourceType.CHAT_MESSAGE,
-                                     f"_chat.txt:L{msg.line_number}")
-            if self._looks_like_scheme(msg.text):
-                self._process_scheme_message(msg)
-
-        # Step 4: Process loose files (not referenced in chat)
-        self._process_loose_files(week_path, processed_files)
-
-        # Step 5: Link related data (match payments to bills, etc.)
-        self._link_data()
-        self._deduplicate_state_records()
-
-        # Save state
+        self._post_link()
+        self.store.ingest_log["weeks"] = sorted(set(self.store.ingest_log.get("weeks", [])) | {self.week_label})
         self.store.save()
-        self.store.update_meta("last_ingest", datetime.now().isoformat())
-        self.store.update_meta("last_week_dir", str(week_path))
-        self.store.save()
+        out = dict(sorted(self.stats.items()))
+        out["distributors"] = [f"{c.code} ({c.name})" for c in self.store.all_cards()]
+        out["owner"] = self.store.shop.get("owner_names", [])
+        out["llama"] = "on" if self.llama.available else "off (deterministic readers only)"
+        return out
 
-        logger.info(f"═══ Ingestion complete ═══")
-        logger.info(f"Stats: {self._stats}")
-        return self._stats
+    # ─────────────────────────────────────────────────────────
+    # Identity
+    # ─────────────────────────────────────────────────────────
+    def _identify_people(self, messages: list[ChatMessage], docs) -> None:
+        shop = self.store.shop
+        senders = Counter(m.sender for m in messages if m.sender and not m.is_system)
+        known_owner = set(shop.get("owner_names", []))
+        # owner scoring
+        scores: Counter = Counter()
+        all_text = " \n".join(m.text for m in messages)
+        low_text = all_text.lower()
+        for s in senders:
+            if UNKNOWN_SENDER.match(s.strip()):
+                scores[s] -= 10
+                continue
+            if s in known_owner:
+                scores[s] += 10
+            first = s.split()[0].lower()
+            others = " ".join(m.text.lower() for m in messages if m.sender != s)
+            if s.lower() in others:
+                scores[s] += 4
+            elif len(first) > 2 and re.search(rf"\b{re.escape(first)}\s*(ji|bhai|sir)\b", others):
+                scores[s] += 2
+            if SHOP_WORDS.search(s):
+                scores[s] += 2
+            for m in messages:
+                if m.sender != s:
+                    continue
+                for _, _, res in docs.get(id(m), []):
+                    if res.doc_type == "upi_payment":
+                        scores[s] += 2
+                    if res.doc_type in ("bill", "rate_list", "statement"):
+                        scores[s] -= 3
+                if re.search(r"\b(bhej\s*do|bhejiye|kar\s*diya|theek\s*hai|order)\b", m.text, re.I):
+                    scores[s] += 1
+        owners = [s for s, sc in scores.most_common() if sc >= 3]
+        owner = owners[0] if owners else None
+        if owner and owner not in known_owner:
+            shop["owner_names"] = sorted(known_owner | {owner})
+        if owner and not shop.get("shop_name"):
+            shop["shop_name"] = owner
+        owner_set = set(shop.get("owner_names", []))
 
-    def _identify_distributors(self, messages: list[ChatMessage], week_path: Path):
-        """Identify distributors and authorized persons from chat context."""
-        # Use Llama to identify distributors from chat messages
-        senders: dict[str, list[str]] = {}
-        for msg in messages[:100]:  # Sample first 100 messages
-            if not msg.is_system:
-                senders.setdefault(msg.sender, []).append(msg.text[:200])
+        # bill prefixes each sender is associated with
+        prefixes: dict[str, Counter] = defaultdict(Counter)
+        doc_names: dict[str, Counter] = defaultdict(Counter)
+        for m in messages:
+            if m.sender in owner_set:
+                continue
+            for bid in find_bill_ids(m.text):
+                prefixes[m.sender][bill_prefix(bid)] += 1
+            for _, _, res in docs.get(id(m), []):
+                d = res.data or {}
+                if res.doc_type == "bill" and d.get("bill_id"):
+                    prefixes[m.sender][bill_prefix(d["bill_id"])] += 3
+                if res.doc_type == "statement":
+                    for e in d.get("entries", []):
+                        prefixes[m.sender][bill_prefix(e.get("bill_id", ""))] += 1
+                if d.get("distributor_name"):
+                    doc_names[m.sender][d["distributor_name"]] += 1
+                if d.get("distributor_code"):
+                    prefixes[m.sender][str(d["distributor_code"]).upper()] += 2
 
-        if not senders:
-            return
+        smap = shop["sender_map"]
+        for s in sorted(senders):
+            if s in owner_set or UNKNOWN_SENDER.match(s.strip()) or s in smap:
+                if s in smap and s not in owner_set:
+                    self._ensure_contact(self.store.card(smap[s]), s)
+                continue
+            person, company = split_person_company(s)
+            chat_titles = {getattr(m, "_chat_title", "") for m in messages if m.sender == s}
+            if not company:
+                # 1:1 chat export "WhatsApp Chat with Ganga Traders.txt"
+                title = next((t for t in chat_titles if t and t.lower() not in {x.lower() for x in owner_set}), "")
+                if title:
+                    company = title
+                elif doc_names[s]:
+                    company = doc_names[s].most_common(1)[0][0]
+            code = self._match_card(company) if company else None
+            pref = [p for p, _ in prefixes[s].most_common() if p]
+            if not code and pref:
+                code = pref[0] if (self.store.card(pref[0]) or not self._code_taken(pref[0], company)) else None
+            if not code and company:
+                code = self._new_code(company)
+            if not code:
+                # a named person with no company and no documents: unknown authority
+                continue
+            card = self.store.get_or_create(code, company or code)
+            if company and (card.name == card.code):
+                card.name = company
+            smap[s] = code
+            self._ensure_contact(card, s, person or s)
+        self.owner_set = owner_set
 
-        # Try to identify from chat context
-        sample_text = "\n".join(
-            f"{sender}: {texts[0][:100]}"
-            for sender, texts in list(senders.items())[:10]
-        )
-
-        try:
-            prompt = f"""From this WhatsApp chat, identify:
-1. The shop owner (usually sends the most messages or is the one paying)
-2. Distributor salesmen (they send bills, rate lists, offer schemes)
-
-Chat sample:
-{sample_text}
-
-Files in directory: {[f.name for f in week_path.iterdir()][:20]}
-
-Return JSON:
-{{
-    "owner": "owner name",
-    "distributors": [
-        {{
-            "code": "2-3 letter code like GT, SP",
-            "name": "full distributor name",
-            "salesmen": ["salesman names"],
-            "identified_from": "how you identified this"
-        }}
-    ]
-}}"""
-
-            result = self.llama.extract_json(prompt)
-
-            for dist_info in result.get("distributors", []):
-                code = dist_info.get("code", "UNK")
-                name = dist_info.get("name", code)
-                card = self.store.get_or_create_distributor(code, name)
-
-                for salesman in dist_info.get("salesmen", []):
-                    if not any(ap.name.lower() == salesman.lower()
-                              for ap in card.authorized_persons):
-                        card.authorized_persons.append(
-                            AuthorizedPerson(name=salesman, role="salesman")
-                        )
-
-            logger.info(f"Identified {len(result.get('distributors', []))} distributors")
-
-        except Exception as e:
-            logger.warning(f"Distributor identification via Llama failed: {e}, using heuristic identification")
-            for sender in senders.keys():
-                code = self._guess_distributor_code("", sender)
-                if code != "UNK":
-                    card = self.store.get_or_create_distributor(code, sender)
-                    if not any(ap.name.lower() == sender.lower() for ap in card.authorized_persons):
-                        card.authorized_persons.append(
-                            AuthorizedPerson(name=sender, role="salesman", can_offer_schemes=True)
-                        )
-            if not self.store.list_distributors():
-                self.store.get_or_create_distributor("UNK", "Unknown Distributor")
-
-    def _process_attachment(
-        self,
-        file_path: str,
-        file_type: Optional[str],
-        sender: str,
-        msg: ChatMessage,
-    ):
-        """Process a single attachment file."""
-        path = Path(file_path)
-        logger.info(f"Processing attachment: {path.name} (type={file_type}, sender={sender})")
-
-        if file_type == "image":
-            self._process_image(file_path, sender, msg)
-        elif file_type == "pdf":
-            self._process_pdf(file_path, sender, msg)
-        elif file_type == "voice":
-            self._process_voice(file_path, sender, msg)
-
-    def _process_image(self, image_path: str, sender: str, msg: ChatMessage):
-        """Process an image attachment (bill photo or UPI screenshot)."""
-        filename = Path(image_path).name.lower()
-
-        # Determine if this is a UPI screenshot or a bill
-        is_upi = any(k in filename for k in ["upi", "payment", "gpay", "phonepe", "paytm"])
-
-        # Also check chat context
-        msg_lower = msg.text.lower()
-        if any(k in msg_lower for k in ["payment", "paid", "upi", "bhej diya", "transfer"]):
-            is_upi = True
-
-        # Check if it looks like a statement
-        is_statement = any(k in filename for k in ["statement", "outstanding", "balance", "dues"])
-        if any(k in msg_lower for k in ["statement", "outstanding", "baki", "dues"]):
-            is_statement = True
-
-        dist_code = self._guess_distributor_code(filename, sender)
-
-        if is_upi:
-            payment = extract_upi_payment(self.llama, image_path, dist_code)
-            if payment:
-                card = self.store.get_or_create_distributor(dist_code)
-                if not any(existing.payment_id == payment.payment_id for existing in card.payments):
-                    card.payments.append(payment)
-                    self._stats["upi_payments_extracted"] += 1
-        elif is_statement:
-            stmt_data = extract_statement_from_image(self.llama, image_path)
-            if stmt_data:
-                self._process_statement_data(stmt_data, dist_code, image_path)
-        else:
-            bill = extract_bill_from_image(self.llama, image_path, dist_code)
-            if bill:
-                if bill.raw_text and not self.safety.check_message(bill.raw_text)["is_safe"]:
-                    self._stats["safety_blocks"] += 1
-                    logger.warning(f"Quarantined bill content containing unsafe instructions: {Path(image_path).name}")
-                    return
-                # Update distributor code from the bill
-                if bill.distributor_code != "UNK":
-                    dist_code = bill.distributor_code
-                card = self.store.get_or_create_distributor(dist_code)
-                # Avoid duplicate bills
-                existing_index = next((i for i, old in enumerate(card.bills)
-                                       if old.bill_id == bill.bill_id), None)
-                if existing_index is None:
-                    card.bills.append(bill)
-                    self._stats["bills_extracted"] += 1
-                else:
-                    previous = card.bills[existing_index]
-                    bill.is_paid = previous.is_paid
-                    bill.payment_ref = previous.payment_ref
-                    card.bills[existing_index] = bill
-                    logger.info(f"Refreshed previously ingested bill: {bill.bill_id}")
-
-    def _process_pdf(self, pdf_path: str, sender: str, msg: ChatMessage):
-        """Process a PDF attachment (rate list)."""
-        dist_code = self._guess_distributor_code(Path(pdf_path).name, sender)
-
-        rate_list = parse_rate_list(self.llama, pdf_path, dist_code)
-        if rate_list:
-            card = self.store.get_or_create_distributor(rate_list.distributor_code)
-
-            # Check for superseded rate lists
-            for existing_rl in card.rate_lists:
-                if (existing_rl.effective_date < rate_list.effective_date and
-                        existing_rl.superseded_by is None):
-                    existing_rl.superseded_by = rate_list.version
-
-            existing_index = next((i for i, old in enumerate(card.rate_lists)
-                if old.source_file == rate_list.source_file
-                and old.version == rate_list.version
-                and old.effective_date == rate_list.effective_date), None)
-            if existing_index is None:
-                card.rate_lists.append(rate_list)
-                self._stats["rate_lists_parsed"] += 1
-            else:
-                card.rate_lists[existing_index] = rate_list
-
-    def _process_voice(self, audio_path: str, sender: str, msg: ChatMessage):
-        """Process a voice note attachment."""
-        result = transcribe_voice_note(
-            audio_path,
-            language=self.config.whisper.language,
-            model_size=self.config.whisper.model_size,
-        )
-
-        if result["text"]:
-            self._stats["voice_notes_transcribed"] += 1
-            logger.info(f"Voice note from {sender}: '{result['text'][:100]}...'")
-
-            if not self.safety.check_message(result["text"])["is_safe"]:
-                self._stats["safety_blocks"] += 1
-                logger.warning(f"Quarantined voice note containing unsafe instructions: {Path(audio_path).name}")
-                return
-
-            self._process_rate_quote(
-                result["text"], sender, msg.timestamp, SourceType.VOICE_NOTE,
-                f"voice:{Path(audio_path).name}",
-            )
-
-            # Check for scheme offers
-            if self._looks_like_scheme(result["text"]):
-                dist_code = self._guess_distributor_code("", sender)
-                card = self.store.get_distributor(dist_code)
-                if card is None or not self._can_offer_schemes(card, sender):
-                    logger.info(f"Ignoring scheme-like voice note from unauthorized sender: {sender}")
-                    return
-
-                try:
-                    scheme_data = self.llama.parse_hinglish_scheme(
-                        result["text"], speaker=sender
-                    )
-                    self._contextualize_scheme(scheme_data, dist_code)
-
-                    if scheme_data.get("is_scheme"):
-                        scheme = Scheme(
-                            scheme_id=f"SCH-{msg.line_number}-{sender}",
-                            distributor_code=dist_code,
-                            product=scheme_data.get("product", "general"),
-                            scheme_type=SchemeType(scheme_data.get("scheme_type", "one_time")),
-                            buy_qty=scheme_data.get("buy_qty"),
-                            free_qty=scheme_data.get("free_qty"),
-                            discount_pct=scheme_data.get("discount_pct"),
-                            agreed_by=sender,
-                            agreed_date=msg.timestamp.date() if msg.timestamp else None,
-                            source_type=SourceType.VOICE_NOTE,
-                            source_ref=f"voice:{Path(audio_path).name}",
-                            raw_text=result["text"],
-                        )
-
-                        card = self.store.get_or_create_distributor(dist_code)
-                        if self._can_offer_schemes(card, sender):
-                            existing_index = next((i for i, old in enumerate(card.schemes)
-                                                   if old.scheme_id == scheme.scheme_id), None)
-                            if existing_index is None:
-                                card.schemes.append(scheme)
-                                self._stats["schemes_found"] += 1
-                            else:
-                                card.schemes[existing_index] = scheme
-                            logger.info(f"Scheme found in voice note: {scheme_data}")
-                except Exception as e:
-                    logger.warning(f"Failed to parse scheme from voice note: {e}")
-
-    def _process_scheme_message(self, msg: ChatMessage):
-        """Process a chat message that looks like a scheme offer."""
-        dist_code = self._guess_distributor_code("", msg.sender)
-        card = self.store.get_distributor(dist_code)
-        if card is None or not self._can_offer_schemes(card, msg.sender):
-            logger.info(f"Ignoring scheme-like chat from unauthorized sender: {msg.sender}")
-            return
-
-        try:
-            scheme_data = self.llama.parse_hinglish_scheme(msg.text, speaker=msg.sender)
-            self._contextualize_scheme(scheme_data, dist_code)
-
-            if scheme_data.get("is_scheme"):
-                scheme = Scheme(
-                    scheme_id=f"SCH-{msg.line_number}-{msg.sender}",
-                    distributor_code=dist_code,
-                    product=scheme_data.get("product", "general"),
-                    scheme_type=SchemeType(scheme_data.get("scheme_type", "one_time")),
-                    buy_qty=scheme_data.get("buy_qty"),
-                    free_qty=scheme_data.get("free_qty"),
-                    discount_pct=scheme_data.get("discount_pct"),
-                    agreed_by=msg.sender,
-                    agreed_date=msg.timestamp.date() if msg.timestamp else None,
-                    source_type=SourceType.CHAT_MESSAGE,
-                    source_ref=f"_chat.txt:L{msg.line_number}",
-                    raw_text=msg.text,
-                )
-
-                card = self.store.get_or_create_distributor(dist_code)
-                if self._can_offer_schemes(card, msg.sender):
-                    existing_index = next((i for i, old in enumerate(card.schemes)
-                                           if old.scheme_id == scheme.scheme_id), None)
-                    if existing_index is None:
-                        card.schemes.append(scheme)
-                        self._stats["schemes_found"] += 1
-                    else:
-                        card.schemes[existing_index] = scheme
-        except Exception as e:
-            logger.warning(f"Failed to parse scheme from chat: {e}")
-
-    def _process_rate_quote(self, text: str, sender: str, timestamp: datetime,
-                            source_type: SourceType, source_ref: str):
-        """Capture explicit named-salesman prices so later disagreement is visible."""
-        normalized = str.maketrans("०१२३४५६७८९", "0123456789")
-        clean_text = text.translate(normalized)
-        if not re.search(r"\b(rate|price|bhav|daam)\b", clean_text, re.IGNORECASE):
-            return
-        match = re.search(
-            r"\b(?:rate|price|bhav|daam)\s*(?:(?:hai|is|ab|at|=|:|ka)\s*)?"
-            r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)",
-            clean_text, re.IGNORECASE,
-        )
-        if not match:
-            match = re.search(r"(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)", clean_text, re.IGNORECASE)
-        if not match:
-            return
-
-        dist_code = self._guess_distributor_code("", sender)
-        card = self.store.get_distributor(dist_code)
-        if card is None or not card.is_authorized(sender):
-            return
-
-        searchable = clean_text.casefold()
-        products = {entry.product: entry for rl in card.rate_lists for entry in rl.entries}
-        product_scores = []
-        stop_words = {"carton", "product", "price", "rate", "free", "item", "bag", "piece", "packet", "unit"}
-        for name in products:
-            tokens = {word for word in re.findall(r"[a-z0-9]+", name.casefold())
-                      if len(word) >= 4 and word not in stop_words}
-            score = len(tokens.intersection(re.findall(r"[a-z0-9]+", searchable)))
-            if name.casefold() in searchable:
-                score += len(tokens) + 1
-            if score:
-                product_scores.append((score, name))
-        product_scores.sort(key=lambda pair: (-pair[0], pair[1].casefold()))
-        product = (product_scores[0][1]
-                   if product_scores and (len(product_scores) == 1
-                       or product_scores[0][0] > product_scores[1][0]) else None)
-        if not product:
-            return
-        try:
-            rate = float(match.group(1).replace(",", ""))
-        except ValueError:
-            return
-        if rate <= 0:
-            return
-
-        quote = RateQuote(
-            product=product,
-            rate=rate,
-            agreed_by=sender,
-            agreed_date=timestamp.date(),
-            source_type=source_type,
-            source_ref=source_ref,
-        )
-        if not any(q.source_ref == source_ref and q.product.casefold() == product.casefold()
-                   and abs(q.rate - rate) < 0.01 for q in card.rate_quotes):
-            card.rate_quotes.append(quote)
-            logger.info(f"Recorded explicit rate quote for {product}: ₹{rate} from {sender}")
-
-    def _record_product_context(self, msg: ChatMessage):
-        """Remember a uniquely named product mentioned in this supplier thread."""
-        dist_code = self._guess_distributor_code("", msg.sender)
-        card = self.store.get_distributor(dist_code)
+    def _ensure_contact(self, card: Optional[DistributorCard], display: str, person: str = "") -> None:
         if card is None:
             return
-        text = msg.text.casefold()
-        names = {entry.product for rl in card.rate_lists for entry in rl.entries}
-        matches = []
-        for product in names:
-            product_lower = product.casefold()
-            distinctive = [word for word in re.findall(r"[a-z0-9]+", product_lower)
-                           if len(word) >= 5]
-            if product_lower in text or (distinctive and any(word in text for word in distinctive)):
-                matches.append(product)
-        if len(matches) == 1:
-            self._recent_product_by_distributor[dist_code] = matches[0]
+        person = person or split_person_company(display)[0] or display
+        if card.contact(display) or card.contact(person):
+            c = card.contact(display) or card.contact(person)
+            if not c.display_name:
+                c.display_name = display
+            return
+        card.contacts.append(Contact(name=person, display_name=display, role="salesman", can_offer_schemes=True,
+                                     source_kind="chat"))
 
-    def _contextualize_scheme(self, scheme_data: dict, dist_code: str):
-        product = str(scheme_data.get("product", "")).strip().casefold()
-        if product in ("", "general", "all", "any"):
-            contextual_product = self._recent_product_by_distributor.get(dist_code)
-            if contextual_product:
-                scheme_data["product"] = contextual_product
-
-    def _process_statement_data(
-        self, stmt_data: dict, dist_code: str, source_file: str,
-    ):
-        """Process raw statement data into a Statement object."""
-        try:
-            statement_date = parse_iso_date(stmt_data.get("statement_date"))
-            if statement_date is None:
-                logger.warning(
-                    f"Ignoring statement {Path(source_file).name}: missing or invalid "
-                    "statement date"
-                )
-                return
-
-            entries = []
-            for entry in stmt_data.get("entries", []):
-                bill_date = parse_iso_date(entry.get("bill_date"))
-                amount = parse_finite_number(entry.get("amount"))
-                bill_id = str(entry.get("bill_id", "")).strip()
-                if bill_date is None or amount is None or amount < 0 or not bill_id:
-                    logger.warning(
-                        f"Skipping invalid statement entry in {Path(source_file).name}: "
-                        f"bill_id={bill_id!r}, bill_date={entry.get('bill_date')!r}, "
-                        f"amount={entry.get('amount')!r}"
-                    )
+    def _match_card(self, company: str) -> Optional[str]:
+        want = name_tokens(company)
+        best, best_score = None, 0.0
+        for card in self.store.all_cards():
+            for nm in [card.name] + card.aliases:
+                have = name_tokens(nm)
+                if not want or not have:
                     continue
-                status = str(entry.get("status", "unknown")).strip().lower()
-                if status not in {"due", "partial", "paid"}:
-                    status = "unknown"
-                entries.append(StatementEntry(
-                    bill_id=bill_id,
-                    bill_date=bill_date,
-                    amount=amount,
-                    status=status,
-                ))
+                inter = len(want & have) / max(1, min(len(want), len(have)))
+                if inter > best_score:
+                    best, best_score = card.code, inter
+        return best if best_score >= 0.99 else None
 
-            stmt = Statement(
-                distributor_code=dist_code,
-                statement_date=statement_date,
-                source_file=Path(source_file).name,
-                entries=entries,
-            )
+    def _code_taken(self, code: str, company: str) -> bool:
+        card = self.store.card(code)
+        return bool(card and company and self._match_card(company) != code)
 
-            card = self.store.get_or_create_distributor(dist_code)
-            if not any(old.source_file == stmt.source_file for old in card.statements):
-                card.statements.append(stmt)
-        except Exception as e:
-            logger.warning(f"Failed to process statement data: {e}")
+    def _new_code(self, company: str) -> str:
+        base = initials(company)
+        code, n = base, 2
+        while self.store.card(code) and self._match_card(company) != code:
+            code = f"{base}{n}"
+            n += 1
+        return code
 
-    def _process_loose_files(self, week_path: Path, processed: set[str]):
-        """Process files in the week directory not referenced in chat."""
-        for f in sorted(week_path.iterdir()):
-            if f.name in processed or f.suffix.lower() == ".txt":
+    def _load_contracts(self, week: Path) -> None:
+        """Optional contract cards: contract*.json / contracts.json in the week folder."""
+        for p in sorted(week.rglob("*contract*.json")):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Unreadable contract file {p.name}: {e}")
                 continue
+            for c in data if isinstance(data, list) else data.get("distributors", [data]):
+                code = str(c.get("code") or c.get("distributor_code") or "").upper()
+                name = c.get("name") or c.get("distributor") or code
+                if not code:
+                    code = self._match_card(name) or self._new_code(name)
+                card = self.store.get_or_create(code, name)
+                for sm in c.get("salesmen") or c.get("contacts") or []:
+                    if isinstance(sm, str):
+                        sm = {"name": sm}
+                    existing = card.contact(sm["name"])
+                    if existing:
+                        existing.can_offer_schemes = bool(sm.get("can_offer_schemes", True))
+                        existing.source_kind = "contract"
+                    else:
+                        card.contacts.append(Contact(name=sm["name"], role=sm.get("role", "salesman"),
+                                                     can_offer_schemes=bool(sm.get("can_offer_schemes", True)),
+                                                     source_kind="contract"))
+                if c.get("credit_days"):
+                    rate = c.get("interest_rate", self.config.policy.default_interest_rate)
+                    rate = float(rate) / 100 if float(rate) > 1 else float(rate)
+                    card.credit_terms.append(CreditTerms(days=int(c["credit_days"]), interest_rate=rate,
+                                                         source_kind="contract",
+                                                         source=SourceRef(file=p.name, week=self.week_label)))
 
-            if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
-                logger.info(f"Processing loose image: {f.name}")
-                dummy_msg = ChatMessage(
-                    line_number=0, timestamp=datetime.now(),
-                    sender="unknown", text="", raw_line="",
-                )
-                self._process_image(str(f), "unknown", dummy_msg)
-                processed.add(f.name)
+    def _code_for_sender(self, sender: str) -> Optional[str]:
+        return self.store.shop["sender_map"].get(sender)
 
-            elif f.suffix.lower() == ".pdf":
-                logger.info(f"Processing loose PDF: {f.name}")
-                dummy_msg = ChatMessage(
-                    line_number=0, timestamp=datetime.now(),
-                    sender="unknown", text="", raw_line="",
-                )
-                self._process_pdf(str(f), "unknown", dummy_msg)
-                processed.add(f.name)
+    def _authority(self, sender: str, code: Optional[str], forwarded: bool) -> Authority:
+        if forwarded:
+            return Authority.FORWARDED
+        if sender in self.owner_set:
+            return Authority.OWNER
+        if code:
+            card = self.store.card(code)
+            c = card.contact(sender) if card else None
+            if c and c.can_offer_schemes:
+                return Authority.NAMED_SALESMAN
+            if c:
+                return Authority.IDENTIFIED_PERSON
+        if UNKNOWN_SENDER.match(sender.strip()):
+            return Authority.UNKNOWN
+        return Authority.IDENTIFIED_PERSON
 
-            elif f.suffix.lower() in {".opus", ".mp3"}:
-                logger.info(f"Processing loose audio: {f.name}")
-                dummy_msg = ChatMessage(
-                    line_number=0, timestamp=datetime.now(),
-                    sender="unknown", text="", raw_line="",
-                )
-                self._process_voice(str(f), "unknown", dummy_msg)
-                processed.add(f.name)
-
-    def _link_data(self):
-        """Link related data across distributors (e.g., match payments to bills)."""
-        for card in self.store.list_distributors():
-            # Match payments to bills by amount and approximate date
-            for payment in card.payments:
-                if payment.matched_bill_id or not payment.is_verified:
-                    continue  # Already matched
-
-                for bill in sorted(card.bills, key=lambda b: (b.bill_date, b.bill_id)):
-                    if (abs(bill.grand_total - payment.amount) < 1.0
-                            and abs((bill.bill_date - payment.payment_date).days) <= 3
-                            and not bill.is_paid):
-                        payment.matched_bill_id = bill.bill_id
-                        bill.is_paid = True
-                        bill.payment_ref = payment.upi_ref
-                        logger.info(f"Matched payment ₹{payment.amount} to bill {bill.bill_id}")
-                        break
-
-    def _deduplicate_state_records(self):
-        """Collapse duplicate records left by earlier or repeated ingestion runs."""
-        for card in self.store.list_distributors():
-            card.bills = self._unique_by(card.bills, lambda x: x.bill_id)
-            card.rate_lists = self._unique_by(
-                card.rate_lists,
-                lambda x: (x.source_file, x.version, x.effective_date),
-            )
-            card.rate_quotes = self._unique_by(
-                card.rate_quotes,
-                lambda x: (x.source_ref, x.product.casefold(), round(x.rate, 2)),
-            )
-            card.schemes = self._unique_by(card.schemes, lambda x: x.scheme_id)
-            card.schemes = [scheme for scheme in card.schemes
-                if scheme.source_type not in (SourceType.CHAT_MESSAGE, SourceType.VOICE_NOTE)
-                or any(person.name.casefold() == scheme.agreed_by.casefold()
-                       and person.can_offer_schemes for person in card.authorized_persons)]
-            card.payments = self._unique_by(card.payments, lambda x: x.payment_id)
-            card.statements = self._unique_by(card.statements, lambda x: x.source_file)
-
-    @staticmethod
-    def _unique_by(records, key):
-        result = {}
-        for record in records:
-            result[key(record)] = record
-        return list(result.values())
-
-    def _looks_like_scheme(self, text: str) -> bool:
-        """Quick heuristic to check if text contains a scheme offer."""
-        scheme_keywords = [
-            r"free", r"muft", r"gratis",
-            r"pe ", r" pe",  # "X pe Y" pattern
-            r"discount", r"chhut",
-            r"scheme", r"offer",
-            r"buy.*get", r"lo.*milega",
-            r"carton.*free", r"\+1", r"\+2",
-            r"hamesha", r"standing",
-        ]
-        text_lower = text.lower()
-        return any(re.search(kw, text_lower) for kw in scheme_keywords)
-
-    @staticmethod
-    def _can_offer_schemes(card: DistributorCard, sender: str) -> bool:
-        """Only accept schemes from a contact authorized on the contract card."""
-        normalized = sender.casefold().strip()
-        return any(
-            person.can_offer_schemes and person.name.casefold().strip() == normalized
-            for person in card.authorized_persons
-        )
-
-    def _guess_distributor_code(self, filename: str, sender: str) -> str:
-        """Guess distributor code from filename or sender name."""
-        # 1. Match sender keywords
-        sender_upper = sender.upper()
-        if "GANGA" in sender_upper or "RAMESH" in sender_upper:
-            return "GT"
-        if "SHARMA" in sender_upper or "MANOJ" in sender_upper:
-            return "SP"
-        if "BENGAL" in sender_upper or "AMIT" in sender_upper:
-            return "BC"
-        if "KASHI" in sender_upper or "VIJAY" in sender_upper:
-            return "KP"
-        if "BANARAS" in sender_upper or "RAJESH" in sender_upper:
-            return "BW"
-
-        # 2. Check known distributors in store
-        for card in self.store.list_distributors():
-            if card.code.lower() in filename.lower():
-                return card.code
-            for ap in card.authorized_persons:
-                if ap.name.lower() in sender.lower() or sender.lower() in ap.name.lower():
-                    return card.code
-
-        # 3. Check filename token delimited by hyphen or underscore (e.g. GT-1187, SP-4401, ratelist_sp)
-        for part in re.split(r'[-_.]', filename):
-            p = part.upper()
-            if p in {"GT", "SP", "BC", "KP", "BW"}:
-                return p
-
-        # 4. Prefix with separator (e.g. "GT-1187.jpg")
-        code_match = re.match(r'^([A-Z]{2,4})[-_/]', filename.upper())
-        if code_match:
-            cand = code_match.group(1)
-            if cand not in {"RATE", "BILL", "STAT", "INVO", "CHAT"}:
+    # ─────────────────────────────────────────────────────────
+    # Messages
+    # ─────────────────────────────────────────────────────────
+    def _resolve(self, att: str, m: ChatMessage) -> Optional[Path]:
+        base: Path = getattr(m, "_dir", self.week)
+        for cand in (base / att, self.week / att):
+            if cand.exists():
                 return cand
+        hits = sorted(self.week.rglob(Path(att).name))
+        return hits[0] if hits else None
 
-        return "UNK"
+    def _addressed_code(self, m: ChatMessage, context: dict) -> Optional[str]:
+        """Which distributor an owner message is about."""
+        text = getattr(m, "_context", m.text) or m.text
+        for bid in find_bill_ids(text):
+            pre = bill_prefix(bid)
+            if self.store.card(pre):
+                return pre
+            for card in self.store.all_cards():
+                if any(b.bill_id == bid for b in card.bills):
+                    return card.code
+        toks = name_tokens(text)
+        for card in self.store.all_cards():
+            for c in card.contacts:
+                if name_tokens(c.name) and name_tokens(c.name) <= toks:
+                    return card.code
+            if name_tokens(card.name) and name_tokens(card.name) <= toks:
+                return card.code
+        title = getattr(m, "_chat_title", "")
+        if title:
+            code = self._match_card(title)
+            if code:
+                return code
+        last = context.get(m.chat_file)
+        if last and (m.timestamp - last[1]) <= timedelta(hours=36):
+            return last[0]
+        return None
+
+    def _handle_message(self, m: ChatMessage, attachments, context: dict) -> None:
+        sender = m.sender
+        is_owner = sender in self.owner_set
+        code = self._code_for_sender(sender)
+        trusted = is_owner or bool(code)
+        screen = self.safety.check(m.body or m.text, forwarded=m.is_forwarded, trusted_sender=trusted)
+        src = SourceRef(file=m.chat_file, line=m.line, sender=sender, received_at=m.timestamp,
+                        week=self.week_label, chat_file=m.chat_file, text=m.body[:300])
+        if screen["threat"]:
+            self.stats["quarantined"] += 1
+            self.store.add_alert({
+                "source": m.cite(), "sender": sender, "received_at": m.timestamp.isoformat(),
+                "reason": ", ".join(screen["categories"]), "detail": screen["reason"],
+                "text": m.text[:300], "forwarded": m.is_forwarded,
+                "action": "quarantined: not followed, no record created, owner informed",
+            })
+            for att, p, _ in attachments:
+                self.store.add_alert({"source": f"{m.cite()} ({att})", "sender": sender,
+                                      "reason": "attachment of quarantined message", "detail": "",
+                                      "text": att, "action": "not processed"})
+            return
+        if is_owner:
+            code = self._addressed_code(m, context) or code
+        elif code:
+            context[m.chat_file] = (code, m.timestamp)
+
+        for att, p, res in attachments:
+            asrc = SourceRef(file=p.name, line=m.line, sender=sender, received_at=m.timestamp,
+                             week=self.week_label, chat_file=m.chat_file, text=m.body[:300])
+            if res.doc_type == "transcript":
+                self._handle_transcript(res, asrc, code, m)
+            elif res.readable:
+                got = self._handle_document(res, asrc, sender_code=code, message=m)
+                if got and not code:
+                    code = got
+            else:
+                self.store.add_alert({"source": f"{m.cite()} ({att})", "sender": sender,
+                                      "reason": "unreadable attachment", "detail": res.note, "text": att,
+                                      "action": "logged; ask sender to resend a clearer copy"})
+
+        if m.is_forwarded:
+            if m.body:
+                self.stats["forwarded_ignored"] += 1
+            return
+        if not m.body:
+            return
+        if not code:
+            return
+        card = self.store.get_or_create(code)
+        facts = self.agent.understand(m.body, sender_role="shop owner" if is_owner else "distributor salesman",
+                                      ref_date=m.timestamp.date(), known_products=self._products(card),
+                                      is_owner=is_owner)
+        self._apply_facts(card, facts, src, self._authority(sender, code, False), kind="chat", stt_conf=1.0,
+                          is_owner=is_owner, message=m)
+
+    def _handle_transcript(self, res: DocResult, src: SourceRef, code: Optional[str], m: ChatMessage) -> None:
+        text = res.text or (res.data or {}).get("text", "")
+        if not text:
+            return
+        self.stats["voice_notes"] += 1
+        screen = self.safety.check(text, forwarded=m.is_forwarded, trusted_sender=bool(code))
+        if screen["threat"]:
+            self.stats["quarantined"] += 1
+            self.store.add_alert({"source": src.file, "sender": src.sender, "reason": ", ".join(screen["categories"]),
+                                  "detail": screen["reason"], "text": text[:300],
+                                  "action": "voice note quarantined: not followed"})
+            return
+        if not code or m.is_forwarded:
+            return
+        card = self.store.get_or_create(code)
+        facts = self.agent.understand(text, sender_role="distributor salesman (voice note)",
+                                      ref_date=m.timestamp.date(), known_products=self._products(card))
+        vsrc = SourceRef(**{**src.__dict__})
+        self._apply_facts(card, facts, vsrc, self._authority(src.sender, code, False), kind="voice",
+                          stt_conf=res.confidence or 0.6, is_owner=src.sender in self.owner_set, message=m, raw=text)
+
+    # ─────────────────────────────────────────────────────────
+    # Facts from text
+    # ─────────────────────────────────────────────────────────
+    def _products(self, card: DistributorCard) -> list[str]:
+        names = []
+        for rl in card.rate_lists:
+            names += [e.product for e in rl.entries]
+        for b in card.bills:
+            names += [l.product for l in b.lines if not l.is_free]
+        seen, out = set(), []
+        for n in names:
+            k = norm_product(n)
+            if k not in seen:
+                seen.add(k)
+                out.append(n)
+        return out
+
+    def _match_known_product(self, card: DistributorCard, text: str) -> Optional[str]:
+        if not text:
+            return None
+        products = self._products(card)
+        direct, score = best_product_match(text, products, threshold=85)
+        if direct:
+            return direct
+        toks = set(norm_product(text).split())
+        hits = []
+        for p in products:
+            distinctive = {t for t in norm_product(p).split() if len(t) >= 4 and not t.isdigit()}
+            if distinctive and distinctive & toks:
+                hits.append((len(distinctive & toks), p))
+        hits.sort(key=lambda t: (-t[0], t[1]))
+        if hits and (len(hits) == 1 or hits[0][0] > hits[1][0]):
+            return hits[0][1]
+        return None
+
+    def _apply_facts(self, card: DistributorCard, f: MessageFacts, src: SourceRef, authority: Authority, *,
+                     kind: str, stt_conf: float, is_owner: bool, message: ChatMessage, raw: str = "") -> None:
+        d = src.received_at.date() if src.received_at else None
+        base_id = f"{src.file}:{src.line}"
+        if f.cancels_scheme:
+            for s in card.schemes:
+                if s.cancelled_at is None and (s.source.received_at or datetime.min) <= src.received_at:
+                    s.cancelled_at = src.received_at
+            self.stats["schemes_cancelled"] += 1
+        for i, s in enumerate(f.schemes):
+            product = self._match_known_product(card, s.product_text)
+            free_product = self._match_known_product(card, s.free_product_text) if s.free_product_text else None
+            scheme = Scheme(
+                record_id=_rid("scheme", card.code, base_id, i), distributor=card.code, source=src,
+                kind=s.kind, product=product, buy_qty=s.buy_qty, free_qty=s.free_qty, free_product=free_product,
+                unit=s.unit, discount_pct=s.discount_pct, discount_per_unit=s.discount_per_unit,
+                per_multiple=s.per_multiple, recurrence=s.recurrence, valid_from=d, valid_until=s.valid_until,
+                agreed_by=src.sender, authority=authority, source_kind=kind, raw_text=raw or src.text,
+                stt_confidence=stt_conf, extraction=s.source)
+            if card.upsert("schemes", scheme):
+                self.stats["schemes"] += 1
+        for i, q in enumerate(f.rate_quotes):
+            product = self._match_known_product(card, q["product_text"])
+            if not product or is_owner:
+                continue
+            quote = RateQuote(record_id=_rid("quote", card.code, base_id, i), distributor=card.code,
+                              product=product, rate=q["rate"], source=src, authority=authority, said_on=d,
+                              raw_text=raw or src.text, source_kind=kind, stt_confidence=stt_conf)
+            if card.upsert("rate_quotes", quote):
+                self.stats["rate_quotes"] += 1
+        if f.credit_days:
+            rate = f.interest_rate if f.interest_rate is not None else None
+            card.credit_terms = [t for t in card.credit_terms if not (t.source and t.source.file == src.file
+                                                                       and t.source.line == src.line)]
+            card.credit_terms.append(CreditTerms(days=f.credit_days, interest_rate=rate if rate is not None else -1.0,
+                                                 source_kind="chat", source=src, stated_on=src.received_at,
+                                                 raw_text=src.text))
+            self.stats["credit_terms"] += 1
+        elif f.interest_rate is not None and card.credit_terms:
+            card.credit_terms[-1].interest_rate = f.interest_rate
+        if f.payment_claim and (is_owner or kind == "chat"):
+            claim = PaymentClaim(record_id=_rid("claim", card.code, base_id), distributor=card.code, source=src,
+                                 amount=f.payment_claim.get("amount"),
+                                 bill_refs=[normalize_bill_id(b) for b in f.payment_claim.get("bill_refs") or []],
+                                 raw_text=src.text)
+            card.upsert("payment_claims", claim)
+        if f.delivery and not is_owner and d:
+            ev = DeliveryEvent(record_id=_rid("delivery", card.code, base_id), distributor=card.code, source=src,
+                               on_date=d, bill_refs=f.bill_refs, raw_text=src.text)
+            card.upsert("deliveries", ev)
+        if is_owner and f.accepts:
+            for s in card.schemes:
+                r = s.source.received_at
+                if r and src.received_at and timedelta(0) <= src.received_at - r <= timedelta(days=2):
+                    s.owner_acknowledged = True
+
+    # ─────────────────────────────────────────────────────────
+    # Documents
+    # ─────────────────────────────────────────────────────────
+    def _code_from_filename(self, name: str) -> Optional[str]:
+        for part in re.split(r"[-_. ]", name.upper()):
+            if self.store.card(part):
+                return part
+        return None
+
+    def _doc_code(self, res: DocResult, sender_code: Optional[str], message: Optional[ChatMessage]) -> Optional[str]:
+        d = res.data or {}
+        if res.doc_type == "bill" and d.get("bill_id"):
+            pre = bill_prefix(d["bill_id"])
+            if self.store.card(pre):
+                return pre
+        name = d.get("distributor_name") or d.get("payee") or ""
+        if name:
+            code = self._match_card(name) or self._fuzzy_card(name)
+            if code:
+                return code
+        if res.doc_type == "upi_payment" and message is not None:
+            for bid in find_bill_ids(getattr(message, "_context", message.text)):
+                pre = bill_prefix(bid)
+                if self.store.card(pre):
+                    return pre
+        if res.doc_type == "statement":
+            pres = Counter(bill_prefix(e.get("bill_id", "")) for e in d.get("entries", []))
+            for pre, _ in pres.most_common():
+                if self.store.card(pre):
+                    return pre
+        if sender_code:
+            return sender_code
+        if res.doc_type == "bill" and d.get("bill_id") and bill_prefix(d["bill_id"]):
+            pre = bill_prefix(d["bill_id"])
+            self.store.get_or_create(pre, d.get("distributor_name") or pre)
+            return pre
+        if name:
+            code = self._new_code(name)
+            self.store.get_or_create(code, name)
+            return code
+        return None
+
+    def _fuzzy_card(self, name: str) -> Optional[str]:
+        want = name_tokens(name)
+        for card in self.store.all_cards():
+            for nm in [card.name] + card.aliases:
+                have = name_tokens(nm)
+                if want and have and (have <= want or want <= have):
+                    return card.code
+        return None
+
+    def _handle_document(self, res: DocResult, src: SourceRef, sender_code: Optional[str],
+                         message: Optional[ChatMessage]) -> Optional[str]:
+        code = self._doc_code(res, sender_code, message)
+        d = res.data or {}
+        injected = str(d.get("instructions_found") or "")
+        if not injected:
+            text = res.text or d.get("raw_text", "")
+            if text:
+                scr = self.safety.check(text, trusted_sender=bool(sender_code))
+                if scr["threat"]:
+                    injected = scr["reason"]
+        if injected and injected.lower() not in ("null", "none", ""):
+            self.store.add_alert({"source": src.file, "sender": src.sender, "reason": "instruction text inside a document",
+                                  "detail": injected[:200], "text": injected[:200],
+                                  "action": "instructions ignored; numbers on the document still checked"})
+            self.stats["document_injections"] += 1
+        if not code:
+            logger.warning(f"Could not tell which distributor {src.file} belongs to")
+            return None
+        card = self.store.get_or_create(code)
+        if src.received_at is None:
+            dd = d.get("bill_date") or d.get("statement_date") or d.get("date") or d.get("effective_from")
+            if dd:
+                src.received_at = end_of_day(dd)
+        if res.doc_type == "bill":
+            self._add_bill(card, res, src, injected)
+        elif res.doc_type == "rate_list":
+            self._add_rate_list(card, res, src)
+        elif res.doc_type == "upi_payment":
+            self._add_payment(card, res, src, message)
+        elif res.doc_type == "statement":
+            self._add_statement(card, res, src)
+        return code
+
+    def _add_bill(self, card: DistributorCard, res: DocResult, src: SourceRef, injected: str) -> None:
+        d = res.data
+        if not d.get("bill_id") or not d.get("bill_date") or not d.get("lines"):
+            self.store.add_alert({"source": src.file, "sender": src.sender, "reason": "bill could not be read fully",
+                                  "detail": f"bill_id={d.get('bill_id')!r} date={d.get('bill_date')}", "text": "",
+                                  "action": "ask the distributor for a clearer photo"})
+            return
+        lines = [BillLine(row=l["row"], product=l["product"], quantity=l["quantity"], rate=l["rate"], amount=l["amount"],
+                          unit=l.get("unit", ""), hsn=l.get("hsn"), discount=l.get("discount") or 0.0,
+                          free_qty=l.get("free_qty") or 0.0, is_free=l.get("is_free", False),
+                          gst_rate=l.get("gst_rate"), gst_amount=l.get("gst_amount"),
+                          taxable_value=l.get("taxable_value")) for l in d["lines"]]
+        conf = res.confidence or 0.8
+        arith = d.get("arith_score", 1.0)
+        bill = Bill(record_id=f"bill:{card.code}:{d['bill_id']}", bill_id=d["bill_id"], distributor=card.code,
+                    bill_date=d["bill_date"], source=src, lines=lines, delivery_date=d.get("delivery_date"),
+                    challan_no=d.get("challan_no", ""), distributor_name=d.get("distributor_name", ""),
+                    subtotal=d.get("subtotal"), discount_total=d.get("discount_total") or 0.0,
+                    tax_total=d.get("tax_total"), tax_rate=d.get("tax_rate"), grand_total=d.get("grand_total"),
+                    ocr_confidence=round(min(conf, 0.5 + 0.5 * arith) if res.method != "sidecar" else conf, 3),
+                    arithmetic_ok=arith >= 0.99, warnings=d.get("warnings", []), extraction=res.method,
+                    file_hash=res.file_hash, raw_text=(res.text or "")[:2000], injected_text=injected[:300])
+        old = next((b for b in card.bills if b.record_id == bill.record_id), None)
+        if old and old.file_hash == bill.file_hash:
+            bill.source = old.source if (old.source.received_at or datetime.max) <= (src.received_at or datetime.max) else src
+        card.upsert("bills", bill)
+        self.stats["bills"] += 1
+
+    def _add_rate_list(self, card: DistributorCard, res: DocResult, src: SourceRef) -> None:
+        d = res.data
+        if not d.get("entries"):
+            return
+        eff = d.get("effective_from")
+        inferred = False
+        if not eff:
+            eff = d.get("document_date") or (src.received_at.date() if src.received_at else None)
+            inferred = True
+        context = (src.text or "").lower()
+        is_rev = d.get("is_revision") or bool(re.search(r"(corrected|correction|revised|sahi\s*wala|updated|galti|"
+                                                         r"संशोधित|सही)", context))
+        entries = [RateEntry(product=e["product"], rate=e["rate"], unit=e.get("unit", ""), hsn=e.get("hsn"),
+                             gst_rate=e.get("gst_rate"), mrp=e.get("mrp"), scheme_text=e.get("scheme_text", ""),
+                             row=e.get("row")) for e in d["entries"]]
+        rl = RateList(record_id=f"ratelist:{card.code}:{res.file_hash[:12]}:{src.file}", distributor=card.code, source=src,
+                      effective_from=eff, effective_to=d.get("effective_to"), effective_inferred=inferred,
+                      version=d.get("version") or _version_from_name(src.file), is_revision=bool(is_rev),
+                      entries=entries, distributor_name=d.get("distributor_name", ""), extraction=res.method,
+                      confidence=res.confidence or 0.9)
+        card.upsert("rate_lists", rl)
+        self.stats["rate_lists"] += 1
+        # schemes printed on the rate list are the highest-authority scheme source
+        from harness.agents.message_agent import heuristic_facts
+        for e in entries:
+            if not e.scheme_text:
+                continue
+            f = heuristic_facts(e.scheme_text if re.search(r"free|\+", e.scheme_text, re.I) else e.scheme_text + " free")
+            for i, s in enumerate(f.schemes):
+                card.upsert("schemes", Scheme(
+                    record_id=_rid("rl-scheme", rl.record_id, e.product, i), distributor=card.code, source=src,
+                    kind=s.kind, product=e.product, buy_qty=s.buy_qty, free_qty=s.free_qty, unit=s.unit or e.unit,
+                    discount_pct=s.discount_pct, discount_per_unit=s.discount_per_unit, per_multiple=True,
+                    recurrence="until" if rl.effective_to else "permanent", valid_from=eff,
+                    valid_until=rl.effective_to, agreed_by=card.name, authority=Authority.SIGNED_RATE_LIST,
+                    source_kind="rate_list", raw_text=f"{e.product}: {e.scheme_text}"))
+
+    def _add_payment(self, card: DistributorCard, res: DocResult, src: SourceRef, message: Optional[ChatMessage]) -> None:
+        d = res.data
+        if not d.get("amount") or not d.get("date"):
+            self.store.add_alert({"source": src.file, "sender": src.sender, "reason": "payment screenshot unreadable",
+                                  "detail": "", "text": "", "action": "ask owner for UPI reference"})
+            return
+        refs = find_bill_ids((getattr(message, "_context", message.text) if message else "") + " " + (d.get("note") or ""))
+        p = Payment(record_id=f"pay:{card.code}:{res.file_hash[:12]}:{src.file}", distributor=card.code, amount=d["amount"],
+                    payment_date=d["date"], source=src, upi_ref=d.get("upi_ref", ""), payee=d.get("payee", ""),
+                    status=d.get("status", "unknown"), bill_refs=refs, note=d.get("note", ""),
+                    confidence=res.confidence or 0.85, extraction=res.method)
+        card.upsert("payments", p)
+        self.stats["payments"] += 1
+
+    def _add_statement(self, card: DistributorCard, res: DocResult, src: SourceRef) -> None:
+        d = res.data
+        sdate = d.get("statement_date") or (src.received_at.date() if src.received_at else None)
+        if not sdate:
+            return
+        st = Statement(record_id=f"stmt:{card.code}:{res.file_hash[:12]}:{src.file}", distributor=card.code, statement_date=sdate,
+                       source=src, entries=[StatementEntry(row=e["row"], bill_id=e["bill_id"], bill_date=e.get("bill_date"),
+                                                           amount=e.get("amount") or 0.0, status=e.get("status", "due"),
+                                                           balance=e.get("balance")) for e in d.get("entries", [])],
+                       total_outstanding=d.get("total_outstanding"), extraction=res.method,
+                       confidence=res.confidence or 0.85)
+        card.upsert("statements", st)
+        self.stats["statements"] += 1
+
+    def _post_link(self) -> None:
+        """Resolve products of schemes that were stated before any rate list / bill named them."""
+        for card in self.store.all_cards():
+            for s in card.schemes:
+                if s.product is None and s.raw_text:
+                    s.product = self._match_known_product(card, s.raw_text)
+
+
+def _chat_title(path: Path) -> str:
+    m = re.match(r"whatsapp\s*chat\s*(with|-)\s*(.+?)\.txt$", path.name, re.I)
+    if m:
+        return m.group(2).strip()
+    if path.parent.name and not path.parent.name.lower().startswith(("week", "data", "exam")):
+        return ""
+    return ""
+
+
+def _version_from_name(name: str) -> str:
+    m = re.search(r"v(\d+)", name, re.I)
+    return f"v{m.group(1)}" if m else ""

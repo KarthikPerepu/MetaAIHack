@@ -1,0 +1,27 @@
+{
+  "_comment": "Statutory GST by HSN prefix (longest prefix wins), as fractions, copied from GLOSSARY.md section 6. HSNs not listed here fall back to the GST column of the distributor's signed rate list; if neither exists and tax was charged, the GST check says cannot_determine. Edit this file if the official glossary differs.",
+  "rates": {
+    "0401": 0.05,
+    "0402": 0.05,
+    "0403": 0.05,
+    "0404": 0.05,
+    "0405": 0.05,
+    "0406": 0.05,
+    "1704": 0.18,
+    "2106": 0.18,
+    "2201": 0.05,
+    "2202": 0.28,
+    "3401": 0.18,
+    "3402": 0.18
+  },
+  "per_kg_threshold": {
+    "1905": {
+      "threshold_inr_per_kg": 100,
+      "at_or_below": 0.05,
+      "above": 0.18
+    }
+  },
+  "cess": {
+    "2202": 0.12
+  }
+}

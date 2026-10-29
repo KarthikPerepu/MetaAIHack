@@ -1,288 +1,235 @@
 """
-Scheme Not Given Detector.
+Scheme not given: a free-goods or discount scheme agreed in chat / a voice
+note / the rate list is missing on the bill.
 
-Detects free-goods or discount schemes agreed in chat/voice but missing on the bill.
+amount = missing free units x rate in force on the bill date (free goods),
+         or the missing discount (percentage or per-unit).
 
-CRITICAL RULES:
-- A scheme is ONE-TIME by default unless explicitly stated as permanent.
-- "20 carton lo, 2 free" applies to the NEXT qualifying order only.
-- "Hamesha 10+1" is permanent.
-- Treating a one-time scheme as permanent is a CAPPING MISTAKE.
-- Value = free_qty × rate (from rate list in force on bill date).
+* A scheme is ONE-TIME unless the words say it repeats. A one-time scheme is
+  used up by the first qualifying bill dated on/after the agreement, whether or
+  not the free goods were given, so a later bill is never claimed again
+  (treating one-time as permanent is a capping mistake).
+* "X pe Y free" scales with the quantity (20 bought on "10 pe 1" = 2 free);
+  "X lo, Y free milega" gives Y once.
+* Free goods shown on the bill (a free row, a free-qty column, or a price that
+  already absorbs the free units) count as given.
+* Two trusted sources that disagree about the scheme (rate list vs salesman,
+  or two different people) are a conflict. A later message from the same
+  person replaces the earlier offer.
+* Only the distributor's named people (or the rate list, or the owner) can
+  create a scheme. Forwarded or unknown senders cannot.
 """
 
 from __future__ import annotations
-import logging
-from datetime import date
 
-from harness.detectors.base import BaseDetector
-from harness.knowledge.models import (
-    Finding, FindingStatus, DistributorCard, Bill, Scheme, SchemeType,
-    SourceType, SOURCE_AUTHORITY,
-)
+import math
+from typing import Optional
 
-logger = logging.getLogger(__name__)
+from harness.analysis import View, bill_line_cite, chat_cite, first_name, recv
+from harness.detectors.base import authority_factor, bill_read_factor, combine, make, match_factor, owner_adjust
+from harness.knowledge.models import Authority, Bill, BillLine, Finding, Scheme, Status
+from harness.textutil import UNIT_WORDS, fmt_inr, fmt_num, product_similarity
+
+CLS = "scheme_not_given"
+TRUSTED = (Authority.SIGNED_RATE_LIST, Authority.OWNER, Authority.NAMED_SALESMAN)
 
 
-class SchemeNotGivenDetector(BaseDetector):
-    """Detect schemes agreed but not reflected on bills."""
+def _unit(u: str) -> str:
+    return UNIT_WORDS.get((u or "").lower().rstrip("s"), (u or "").lower().rstrip("s"))
 
-    CLASS_NAME = "scheme_not_given"
 
-    def detect(
-        self,
-        card: DistributorCard,
-        bill: Bill,
-        as_of: date,
-    ) -> list[Finding]:
-        findings: list[Finding] = []
-        handled_schemes: set[str] = set()
+def _describe(s: Scheme) -> str:
+    if s.kind == "free_goods":
+        txt = f"{fmt_num(s.buy_qty)} pe {fmt_num(s.free_qty)} free" if s.per_multiple else \
+            f"{fmt_num(s.buy_qty)} lo, {fmt_num(s.free_qty)} free"
+        return txt + (f" {s.unit}" if s.unit else "")
+    if s.kind == "discount_pct":
+        return f"{fmt_num(s.discount_pct)}% discount"
+    return f"₹{fmt_num(s.discount_per_unit)} per {s.unit or 'unit'} off"
 
-        for item in bill.items:
-            if item.is_free:
-                continue  # This item IS a free good
 
-            # Find applicable schemes for this product
-            schemes = card.get_applicable_schemes(item.product, bill.bill_date)
+def _signature(s: Scheme) -> tuple:
+    if s.kind == "free_goods" and s.buy_qty:
+        return ("free", round((s.free_qty or 0) / s.buy_qty, 4))
+    return (s.kind, s.discount_pct, s.discount_per_unit)
 
-            for scheme in schemes:
-                if scheme.scheme_id in handled_schemes:
-                    continue
-                if scheme.product.casefold() in ("", "general", "all", "any"):
-                    eligible_items = [candidate for candidate in bill.items
-                        if not candidate.is_free
-                        and (not scheme.buy_qty or candidate.quantity >= scheme.buy_qty)]
-                    eligible_products = {candidate.product.casefold() for candidate in eligible_items}
-                    if len(eligible_products) > 1:
-                        handled_schemes.add(scheme.scheme_id)
-                        findings.append(self._make_finding(
-                            bill,
-                            FindingStatus.CANNOT_DETERMINE,
-                            missing=f"Product covered by the general scheme from {scheme.source_ref}",
-                            ask=f"{scheme.agreed_by or 'owner'} — confirm which product the scheme covers",
-                            confidence=0.0,
-                        ))
-                        continue
-                    if eligible_items and item not in eligible_items:
-                        continue
-                # Check if this scheme should apply to this bill
-                if not self._scheme_applies(card, scheme, bill, item):
-                    continue
-                handled_schemes.add(scheme.scheme_id)
 
-                # Check if the scheme is already reflected on the bill
-                if self._scheme_is_on_bill(scheme, bill, item):
-                    continue
+def _qualifying_lines(s: Scheme, bill: Bill) -> list[BillLine]:
+    lines = [l for l in bill.lines if not l.is_free and l.quantity > 0]
+    if s.product:
+        lines = [l for l in lines if product_similarity(l.product, s.product) >= 85]
+    if s.unit:
+        lines = [l for l in lines if not l.unit or _unit(l.unit) == _unit(s.unit)]
+    if s.kind == "free_goods" and s.buy_qty:
+        lines = [l for l in lines if l.quantity + 1e-9 >= s.buy_qty]
+    return lines
 
-                # Scheme is NOT on the bill — this is a finding!
-                finding = self._compute_scheme_finding(card, bill, item, scheme)
-                if finding:
-                    findings.append(finding)
 
-        return findings
-
-    def _scheme_applies(
-        self, card: DistributorCard, scheme: Scheme, bill: Bill, item,
-    ) -> bool:
-        """Check if a scheme applies to a specific bill item."""
-        # Check quantity threshold
-        if scheme.buy_qty and item.quantity < scheme.buy_qty:
-            return False  # Not enough quantity to trigger scheme
-
-        # Check if scheme was agreed BEFORE the bill date
-        if scheme.agreed_date and scheme.agreed_date > bill.bill_date:
-            return False  # Scheme agreed after this bill
-
-        # One-time scheme already used?
-        if scheme.scheme_type == SchemeType.ONE_TIME and scheme.is_used:
-            return False
-
-        if scheme.scheme_type == SchemeType.ONE_TIME:
-            # Consume the offer on the earliest qualifying order, derived from
-            # the ledger instead of mutating state during report generation.
-            for previous in card.bills:
-                if (previous.bill_id == bill.bill_id or previous.bill_date > bill.bill_date
-                        or (previous.bill_date == bill.bill_date and previous.bill_id >= bill.bill_id)):
-                    continue
-                if scheme.agreed_date and previous.bill_date < scheme.agreed_date:
-                    continue
-                for prior_item in previous.items:
-                    product_matches = (
-                        prior_item.product.casefold() == item.product.casefold()
-                        or prior_item.product.casefold() in scheme.product.casefold()
-                        or scheme.product.casefold() in prior_item.product.casefold()
-                        or scheme.product.casefold() in ("all", "general", "any", "")
-                    )
-                    if (product_matches and not prior_item.is_free
-                            and (not scheme.buy_qty or prior_item.quantity >= scheme.buy_qty)):
-                        return False
-
-        return True
-
-    def _scheme_is_on_bill(
-        self, scheme: Scheme, bill: Bill, trigger_item,
-    ) -> bool:
-        """Check if a scheme's benefits are already on the bill."""
-        # Look for free goods lines
-        if scheme.free_qty:
-            return self._free_quantity_on_bill(scheme, bill, trigger_item) + 0.01 >= scheme.free_qty
-
-        # Look for discount lines
-        if scheme.discount_pct:
-            expected_discount = trigger_item.amount * (scheme.discount_pct / 100.0)
-            if trigger_item.discount_amount + 0.01 >= expected_discount:
-                return True
-
+def _in_window(s: Scheme, bill: Bill) -> bool:
+    if s.valid_from and bill.bill_date < s.valid_from:
         return False
+    if s.valid_until and bill.bill_date > s.valid_until:
+        return False
+    return True
 
-    def _free_quantity_on_bill(self, scheme: Scheme, bill: Bill, trigger_item) -> float:
-        """Sum matching free lines so split/partial free quantities reconcile correctly."""
-        total = 0.0
-        for free_item in bill.items:
-            if not free_item.is_free:
+
+def detect(view: View) -> list[Finding]:
+    out: list[Finding] = []
+    for card in view.cards():
+        schemes = []
+        for s in view.schemes(card):
+            if s.authority not in TRUSTED:
                 continue
-            name = free_item.product.casefold()
-            product_match = (
-                name in scheme.product.casefold()
-                or scheme.product.casefold() in name
-                or name in trigger_item.product.casefold()
-            )
-            if product_match:
-                total += free_item.quantity
-        return total
+            if s.authority == Authority.NAMED_SALESMAN and view.contact_allowed(card, s.agreed_by) is False:
+                continue
+            schemes.append(s)
+        # a later offer from the same person for the same product replaces the earlier one
+        live: list[Scheme] = []
+        for s in schemes:
+            live = [o for o in live if not (o.agreed_by == s.agreed_by and o.authority == s.authority
+                                            and (o.product == s.product or not o.product or not s.product)
+                                            and o.kind == s.kind)]
+            live.append(s)
+        bills = view.bills(card)
+        consumed: dict[str, str] = {}
+        for bill in bills:
+            cands: list[tuple[Scheme, list[BillLine]]] = []
+            for s in live:
+                if s.record_id in consumed or not _in_window(s, bill):
+                    continue
+                lines = _qualifying_lines(s, bill)
+                if lines:
+                    cands.append((s, lines))
+            if not cands:
+                continue
+            # conflicts: disagreeing schemes from different trusted sources for the same product
+            groups: dict[str, list[tuple[Scheme, list[BillLine]]]] = {}
+            for s, lines in cands:
+                key = s.product or (lines[0].product if len({l.product for l in lines}) == 1 else "*")
+                groups.setdefault(key.lower(), []).append((s, lines))
+            for key, group in sorted(groups.items()):
+                sigs = {_signature(s) for s, _ in group}
+                if len(group) > 1 and len(sigs) > 1:
+                    srcs = [{"source": s.source.file if s.source_kind in ("voice", "rate_list") else s.source.cite(),
+                             "value": _describe(s) + f" ({s.agreed_by})"} for s, _ in group]
+                    f = make(CLS, bill.bill_id, Status.CONFLICT, distributor=card.code, sources=srcs,
+                             evidence=[chat_cite(s.source) or s.source.file for s, _ in group]
+                                      + [bill_line_cite(bill, l) for l in group[0][1]],
+                             reasoning=(f"Sources disagree about the scheme on {key} for {bill.bill_id}: "
+                                        + "; ".join(f"{x['source']}: {x['value']}" for x in srcs) + ". Owner to decide."),
+                             confidence=0.82, evidence_complete=False, scheme_type=group[-1][0].recurrence,
+                             extra={"_key": key})
+                    if not view.resolution_for(bill.bill_id, CLS):
+                        out.append(f)
+                    for s, _ in group:
+                        if s.recurrence == "one_time":
+                            consumed[s.record_id] = bill.bill_id
+                    continue
+                s, lines = group[-1]
+                if s.recurrence == "one_time":
+                    consumed[s.record_id] = bill.bill_id
+                    for other, _ in group[:-1]:
+                        if other.recurrence == "one_time":
+                            consumed[other.record_id] = bill.bill_id
+                f = _evaluate(view, card, bill, s, lines)
+                if f:
+                    f = owner_adjust(view, f)
+                    if f:
+                        out.append(f)
+    return out
 
-    def _compute_scheme_finding(
-        self,
-        card: DistributorCard,
-        bill: Bill,
-        item,
-        scheme: Scheme,
-    ) -> Finding | None:
-        """Compute the finding for a missing scheme."""
-        # Get the rate from rate list in force on bill date
-        active_rl = card.get_active_rate_list(bill.bill_date)
 
-        if scheme.free_qty:
-            if not active_rl:
-                return self._make_finding(
-                    bill,
-                    FindingStatus.CANNOT_DETERMINE,
-                    missing=f"Rate list for {card.name} covering {bill.bill_date} to value the free goods",
-                    ask=f"distributor ({card.name}) — request the rate list in force on {bill.bill_date}",
-                    confidence=0.0,
-                )
-            rate_entry = active_rl.get_rate(item.product)
-            if rate_entry is None:
-                return self._make_finding(
-                    bill,
-                    FindingStatus.CANNOT_DETERMINE,
-                    missing=f"Rate for {item.product} in the rate list covering {bill.bill_date}",
-                    ask=f"distributor ({card.name}) — request the product rate",
-                    confidence=0.0,
-                )
-            rate = rate_entry.rate
+def _evaluate(view: View, card, bill: Bill, s: Scheme, lines: list[BillLine]) -> Optional[Finding]:
+    inferred_product = s.product is None
+    if inferred_product and len({l.product.lower() for l in lines}) > 1:
+        return make(CLS, bill.bill_id, Status.CANNOT_DETERMINE, distributor=card.code,
+                    evidence=[chat_cite(s.source) or s.source.file] + [bill_line_cite(bill, l) for l in lines],
+                    reasoning=(f"{s.agreed_by} offered '{_describe(s)}' without naming the product, and {bill.bill_id} "
+                               f"has several items that qualify."),
+                    missing="which product the scheme covers", ask_party="salesman",
+                    ask=f"salesman ({s.agreed_by}): which product does the '{_describe(s)}' scheme cover?",
+                    confidence=0.75, evidence_complete=False, scheme_type=s.recurrence)
+    line = max(lines, key=lambda l: (l.quantity, l.row))
+    factors = [bill_read_factor(bill), authority_factor(s.authority, s.stt_confidence, s.source_kind)]
+    if inferred_product:
+        factors.append(0.93)
+    if not s.owner_acknowledged and s.authority == Authority.NAMED_SALESMAN:
+        factors.append(0.98)
+    complete = s.source_kind in ("chat", "rate_list", "owner_feedback", "contract") or s.authority == Authority.OWNER
+    evidence = [_scheme_cite(s), chat_cite(s.source) if s.source_kind == "voice" else None,
+                bill_line_cite(bill, line)]
+    if s.kind == "free_goods":
+        mult = math.floor(line.quantity / s.buy_qty + 1e-9) if s.per_multiple else 1
+        expected = mult * (s.free_qty or 0)
+        free_product = s.free_product or s.product or line.product
+        given = line.free_qty + sum(l.quantity for l in bill.lines if l.is_free and
+                                    (product_similarity(l.product, free_product) >= 80 or
+                                     product_similarity(l.product, line.product) >= 80 or
+                                     len([x for x in bill.lines if not x.is_free]) == 1))
+        res = view.resolve_rate(card, free_product, bill.bill_date, bill.bill_id)
+        rate, rate_src = res.rate, None
+        if rate is not None:
+            rate_src = res.rate_list
+            factors.append(match_factor(res.match_score))
+            if res.conflict:
+                factors.append(0.85)
+            # price already absorbs the free units?
+            net = line.amount - line.discount
+            if net <= (line.quantity - expected) * rate + 1.0 and expected > 0:
+                given = max(given, expected)
+        else:
+            rate = (line.amount - line.discount) / line.quantity if line.quantity else line.rate
+            factors.append(0.85)
+            complete = False
+        missing = max(0.0, expected - given)
+        if missing <= 1e-9:
+            return None
+        amount = missing * rate
+        if rate_src is not None:
+            evidence.append(f"{rate_src.source.file}: {res.entry.product} | {fmt_num(rate)}")
+        elif res.owner_rate:
+            evidence.append(f"owner feedback: agreed rate ₹{fmt_num(rate)} for {free_product}")
+        free_rows = [l for l in bill.lines if l.is_free]
+        evidence.append(f"{bill.source.file}: " + (f"{fmt_num(given)} of {fmt_num(expected)} free units shown"
+                                                   if (given or free_rows) else
+                                                   f"{line.product} {fmt_num(line.quantity)}, no free goods line"))
+        valuation = (f"rate in force on {bill.bill_date} from {rate_src.source.file}" if rate_src is not None else
+                     "owner-agreed rate" if res.owner_rate else
+                     "the billed rate (no rate list covers these goods, so this claim waits for the owner)")
+        reasoning = (f"{s.agreed_by} agreed '{_describe(s)}' on {s.valid_from} ({s.source_kind}, "
+                     f"{s.recurrence.replace('_', '-')}). {bill.bill_id} ({bill.bill_date}) bills "
+                     f"{fmt_num(line.quantity)} {line.product}, so {fmt_num(expected)} free unit(s) were due and "
+                     f"{fmt_num(given)} shown. Missing {fmt_num(missing)} × ₹{fmt_num(rate)} ({valuation}) = {fmt_inr(amount)}.")
+    else:
+        if s.kind == "discount_pct":
+            expected_disc = line.amount * (s.discount_pct or 0) / 100.0
+        else:
+            expected_disc = line.quantity * (s.discount_per_unit or 0)
+        paid_lines = [l for l in bill.lines if not l.is_free]
+        gross = sum(l.amount for l in paid_lines) or 1.0
+        given_disc = line.discount + (bill.discount_total or 0) * line.amount / gross
+        missing_amt = expected_disc - given_disc
+        if missing_amt <= view.policy.tax_tolerance:
+            return None
+        amount = missing_amt
+        evidence.append(f"{bill.source.file}: discount shown ₹{fmt_num(round(given_disc, 2))} on {line.product}")
+        reasoning = (f"{s.agreed_by} agreed '{_describe(s)}' on {s.valid_from} ({s.recurrence.replace('_', '-')}). "
+                     f"{bill.bill_id} shows ₹{fmt_num(round(given_disc, 2))} discount on {line.product} "
+                     f"(₹{fmt_num(line.amount)}); ₹{fmt_num(round(expected_disc, 2))} was due. Missing {fmt_inr(amount)}.")
+    if s.owner_acknowledged:
+        reasoning += " The owner accepted the offer in chat."
+    evidence.append(chat_cite(bill.source))
+    f = make(CLS, bill.bill_id, Status.CONFIRMED, distributor=card.code, amount=amount, evidence=evidence,
+             reasoning=reasoning, confidence=combine(*factors), evidence_complete=complete,
+             scheme_type=s.recurrence, extra={"scheme_source": s.source.file if s.source_kind == "voice" else s.source.cite()})
+    f.extra["_draft"] = {"kind": CLS, "card": card.code, "bill": bill.bill_id, "scheme": _describe(s),
+                         "date": str(s.valid_from), "person": first_name(card), "amount": amount}
+    return f
 
-            given_qty = self._free_quantity_on_bill(scheme, bill, item)
-            missing_qty = max(0.0, scheme.free_qty - given_qty)
-            amount = missing_qty * rate
-            if amount <= 0.01:
-                return None
 
-            evidence = [
-                f"{scheme.source_ref}: {scheme.raw_text or scheme.agreed_by + ' agreed scheme'}",
-                f"{bill.source_file}: {given_qty:g} of {scheme.free_qty:g} free units shown for {item.product}",
-            ]
-
-            if active_rl:
-                evidence.append(
-                    f"{active_rl.source_file}: {item.product} rate ₹{rate}"
-                )
-
-            # Check for conflicts (e.g., salesman says one thing, rate list another)
-            conflicting_schemes = self._conflicting_schemes(card, scheme, bill.bill_date)
-            if conflicting_schemes:
-                return self._make_finding(
-                    bill,
-                    FindingStatus.CONFLICT,
-                    sources=[
-                        {"source": scheme.source_ref, "value": f"Buy {scheme.buy_qty}, get {scheme.free_qty} free"},
-                    ] + [
-                        {"source": other.source_ref,
-                         "value": f"Buy {other.buy_qty}, get {other.free_qty} free"}
-                        for other in conflicting_schemes
-                    ],
-                    reasoning=f"Conflicting information about scheme for {item.product}",
-                    confidence=0.5,
-                )
-
-            # Compute confidence
-            confidence = self._compute_base_confidence(bill, has_rate_list=active_rl is not None)
-            # Adjust by source authority
-            source_trust = SOURCE_AUTHORITY.get(scheme.source_type, 0.5)
-            confidence = confidence * 0.7 + source_trust * 0.3
-
-            # Lower confidence for voice-note-only schemes without rate list backing
-            if scheme.source_type == SourceType.VOICE_NOTE and not active_rl:
-                confidence *= 0.7
-
-            return self._make_finding(
-                bill,
-                FindingStatus.CONFIRMED,
-                amount=amount,
-                evidence=evidence,
-                reasoning=(
-                    f"Scheme agreed by {scheme.agreed_by} on {scheme.agreed_date}: "
-                    f"Buy {scheme.buy_qty}, get {scheme.free_qty} free for {item.product}. "
-                    f"Bill {bill.bill_id} has {int(item.quantity)} {item.product}; "
-                    f"{missing_qty:g} of {scheme.free_qty:g} free units are missing. "
-                    f"Missing value: {missing_qty:g} × ₹{rate} = ₹{amount}"
-                ),
-                confidence=confidence,
-            )
-
-        elif scheme.discount_pct:
-            amount = item.amount * (scheme.discount_pct / 100.0)
-            amount = max(0.0, amount - item.discount_amount)
-            if amount <= 0.01:
-                return None
-
-            evidence = [
-                f"{scheme.source_ref}: {scheme.discount_pct}% discount agreed",
-                f"{bill.source_file}: No discount applied on {item.product}",
-            ]
-
-            confidence = self._compute_base_confidence(bill)
-            source_trust = SOURCE_AUTHORITY.get(scheme.source_type, 0.5)
-            confidence = confidence * 0.7 + source_trust * 0.3
-
-            return self._make_finding(
-                bill,
-                FindingStatus.CONFIRMED,
-                amount=amount,
-                evidence=evidence,
-                reasoning=(
-                    f"Discount scheme of {scheme.discount_pct}% agreed by "
-                    f"{scheme.agreed_by}. Not reflected on bill {bill.bill_id}. "
-                    f"Missing discount: ₹{amount}"
-                ),
-                confidence=confidence,
-            )
-
-        return None
-
-    def _conflicting_schemes(
-        self, card: DistributorCard, scheme: Scheme, on_date: date,
-    ) -> list[Scheme]:
-        """Check if there are conflicting scheme offers."""
-        related = [
-            s for s in card.schemes
-            if (s.scheme_id != scheme.scheme_id and
-                s.is_active and
-                (s.agreed_date is None or s.agreed_date <= on_date) and
-                s.product.lower() == scheme.product.lower() and
-                not s.is_used)
-        ]
-
-        return [other for other in related
-                if other.free_qty != scheme.free_qty
-                or other.discount_pct != scheme.discount_pct]
+def _scheme_cite(s: Scheme) -> str:
+    if s.source_kind == "voice":
+        return f"{s.source.file}: {s.raw_text}"[:240]
+    if s.source_kind == "rate_list":
+        return f"{s.source.file}: {s.raw_text}"
+    return chat_cite(s.source) or f"{s.source.file}: {s.raw_text}"

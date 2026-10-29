@@ -1,106 +1,88 @@
 """
-Credit Period Risk Detector.
+Credit-period risk: an unpaid bill whose credit period ends in the next 7 days.
 
-Flags unpaid bills that will cross their agreed credit period
-within the next 7 days from the --as-of date.
-
-KEY RULES:
-- Only flag bills where (bill_date + credit_days) falls within
-  [as_of_date, as_of_date + 7].
-- Already paid bills are NOT at risk.
-- Default credit period: 30 days, 18% p.a. interest.
-- Amount = bill_amount × (annual_rate / 365) × overdue_days.
+* due date = bill date + credit days; flagged when due is in [as_of, as_of + 7].
+* Credit terms: owner feedback > contract card > chat ("45 din ka credit")
+  > glossary default (30 days, 18% p.a.).
+* Paid (UPI reference / unique amount match / statement / owner) bills are
+  not at risk; part-paid bills are at risk for the balance.
+* Bills known only from a statement line also count.
+* amount = outstanding x (annual rate / 365) x overdue days, where overdue
+  days run from the due date to the end of the 7-day look-ahead (at least 1):
+  the interest the owner avoids by paying inside the window.
+* Action: an internal reminder to the owner, never a message to the distributor.
 """
 
 from __future__ import annotations
-import logging
-from datetime import date, timedelta
 
-from harness.detectors.base import BaseDetector
-from harness.knowledge.models import (
-    Finding, FindingStatus, DistributorCard, Bill,
-)
+from datetime import timedelta
 
-logger = logging.getLogger(__name__)
+from harness.analysis import View, chat_cite
+from harness.detectors.base import bill_read_factor, combine, make, owner_adjust
+from harness.knowledge.models import Finding, Status
+from harness.textutil import fmt_inr, fmt_num
+
+CLS = "credit_period_risk"
 
 
-class CreditPeriodRiskDetector(BaseDetector):
-    """Detect bills at risk of crossing credit period."""
-
-    CLASS_NAME = "credit_period_risk"
-
-    def detect(
-        self,
-        card: DistributorCard,
-        bill: Bill,
-        as_of: date,
-    ) -> list[Finding]:
-        findings: list[Finding] = []
-
-        # Skip paid bills
-        if bill.is_paid:
-            return []
-
-        # Get credit terms
-        credit_days = (card.credit_days if card.credit_days is not None
-                       else self.config.default_credit_days)
-        interest_rate = (card.interest_rate if card.interest_rate is not None
-                         else self.config.default_interest_rate)
-        risk_window = self.config.credit_risk_window_days
-
-        # Calculate due date
-        due_date = bill.bill_date + timedelta(days=credit_days)
-
-        # Check if due date falls within [as_of, as_of + 7]
-        window_start = as_of
-        window_end = as_of + timedelta(days=risk_window)
-
-        if not (window_start <= due_date <= window_end):
-            return []
-
-        # Bill is at risk! Calculate potential interest
-        # Interest starts from due_date, so overdue days = as_of - due_date (if positive)
-        # But since due_date is in the future (within the window), interest is what WOULD be due
-        # We calculate for 1 day overdue as the minimum
-        days_until_due = (due_date - as_of).days
-        projected_overdue_days = max(1, risk_window - days_until_due)
-
-        bill_amount = bill.grand_total or bill.total_items_value
-        daily_rate = interest_rate / 365.0
-        interest_amount = bill_amount * daily_rate * projected_overdue_days
-
-        evidence = [
-            f"{bill.source_file}: Bill {bill.bill_id} dated {bill.bill_date}, "
-            f"₹{bill_amount:.2f}",
-            f"Credit terms: {credit_days} days, {interest_rate*100:.1f}% p.a.",
-            f"Due date: {due_date} ({days_until_due} days from {as_of})",
-        ]
-
-        confidence = self._compute_base_confidence(bill)
-        # Higher confidence if closer to due date
-        if days_until_due <= 2:
-            confidence = min(1.0, confidence + 0.15)
-        elif days_until_due <= 5:
-            confidence = min(1.0, confidence + 0.05)
-
-        findings.append(self._make_finding(
-            bill,
-            FindingStatus.CONFIRMED,
-            amount=round(interest_amount, 2),
-            evidence=evidence,
-            reasoning=(
-                f"Bill {bill.bill_id} (₹{bill_amount:.2f}) dated {bill.bill_date} "
-                f"has a {credit_days}-day credit period. Due date is {due_date}, "
-                f"which is {days_until_due} days from now ({as_of}). "
-                f"If unpaid, interest of ₹{interest_amount:.2f} would accrue "
-                f"at {interest_rate*100:.1f}% p.a."
-            ),
-            confidence=confidence,
-        ))
-        # Override action for credit period — it's a reminder, not a claim
-        findings[-1].action = {
-            "supervised": "remind_owner",
-            "autonomous": "remind_owner",
-        }
-
-        return findings
+def detect(view: View) -> list[Finding]:
+    out: list[Finding] = []
+    window = view.policy.credit_window_days
+    start, end = view.as_of, view.as_of + timedelta(days=window)
+    for card in view.cards():
+        days, rate, kind, terms = view.credit_terms(card)
+        items = []
+        seen = set()
+        for b in view.bills(card):
+            items.append((b.bill_id, b.bill_date, b.total_value, b, None))
+            seen.add(b.bill_id)
+        sts = view.statements(card)
+        if sts:
+            for e in sts[-1].entries:
+                if e.bill_id not in seen and e.status in ("due", "partial") and e.bill_date:
+                    items.append((e.bill_id, e.bill_date, e.amount, None, (sts[-1], e)))
+                    seen.add(e.bill_id)
+        for bill_id, bdate, total, bill, st_row in items:
+            due = bdate + timedelta(days=days)
+            if not (start <= due <= end):
+                continue
+            paid, how = view.paid_amount(card, bill_id, by=view.as_of)
+            outstanding = max(0.0, (total or 0.0) - paid)
+            if outstanding <= 1.0:
+                continue
+            od_days = max(1, (end - due).days)
+            interest = outstanding * rate / 365.0 * od_days
+            if terms is None:
+                term_cite = f"contract card: {card.name} default terms {days} days, {fmt_num(rate * 100)}% p.a. (GLOSSARY 3.6)"
+            elif terms.source and terms.source.line:
+                term_cite = chat_cite(terms.source)
+            else:
+                term_cite = f"{terms.source_kind}: {card.name} {days} days credit, {fmt_num(rate * 100)}% p.a."
+            factors = [{"default": 0.88, "chat": 0.95, "contract": 0.98, "owner_feedback": 1.0}.get(kind, 0.9)]
+            if bill is not None:
+                factors.append(bill_read_factor(bill))
+                src_cite = f"{bill.source.file}: bill {bill_id} dated {bdate}, {fmt_inr(total)}"
+                extra_cite = chat_cite(bill.source)
+            else:
+                st, e = st_row
+                factors.append(0.9)
+                src_cite = f"{st.source.file}: row {e.row}: {bill_id} dated {bdate}, {fmt_inr(total)} due"
+                extra_cite = chat_cite(st.source)
+            if paid:
+                factors.append(0.93)
+            reasoning = (f"{bill_id} ({fmt_inr(total)}, {bdate}) has {days} days credit, so it is due on {due}, "
+                         f"{(due - view.as_of).days} day(s) after {view.as_of}. "
+                         + (f"{fmt_inr(paid)} already paid; " if paid else "No payment found; ")
+                         + f"if {fmt_inr(outstanding)} is not paid by then, interest at {fmt_num(rate * 100)}% p.a. "
+                           f"for {od_days} day(s) to {end} is {fmt_inr(interest)}.")
+            f = make(CLS, bill_id, Status.CONFIRMED, distributor=card.code, amount=interest,
+                     evidence=[src_cite, term_cite, f"due date {due} falls in [{start}, {end}]", extra_cite] + how,
+                     reasoning=reasoning, confidence=combine(*factors), reversible=True,
+                     extra={"due_date": str(due), "outstanding_inr": round(outstanding, 2),
+                            "credit_days": days, "interest_rate_pa": rate, "terms_source": kind})
+            f.extra["_draft"] = {"kind": CLS, "bill": bill_id, "due": str(due), "amount": interest,
+                                 "outstanding": outstanding, "card": card.code}
+            f = owner_adjust(view, f)
+            if f:
+                out.append(f)
+    return out
