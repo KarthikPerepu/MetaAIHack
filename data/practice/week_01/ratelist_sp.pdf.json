@@ -1,0 +1,22 @@
+{
+  "distributor_name": "Sharma Products",
+  "distributor_code": "SP",
+  "version": "v1",
+  "effective_date": "2026-10-01",
+  "entries": [
+    {
+      "product": "Fortune Mustard Oil",
+      "rate": 1450.0,
+      "hsn": "1514",
+      "unit": "crate",
+      "gst_rate": 5
+    },
+    {
+      "product": "Aashirvaad Atta",
+      "rate": 380.0,
+      "hsn": "1101",
+      "unit": "bag",
+      "gst_rate": 5
+    }
+  ]
+}

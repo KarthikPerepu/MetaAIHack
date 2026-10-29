@@ -1,0 +1,155 @@
+{
+  "code": "SP",
+  "name": "Manoj Sharma Products",
+  "authorized_persons": [
+    {
+      "name": "Manoj Sharma Products",
+      "role": "salesman",
+      "phone": "",
+      "can_offer_schemes": true,
+      "permissions": [
+        "schemes",
+        "deliveries"
+      ]
+    }
+  ],
+  "credit_days": 30,
+  "interest_rate": 0.18,
+  "rate_lists": [
+    {
+      "distributor_code": "SP",
+      "version": "v1",
+      "effective_date": "2026-10-01",
+      "source_file": "ratelist_sp.pdf",
+      "entries": [
+        {
+          "product": "Fortune Mustard Oil",
+          "rate": 1450.0,
+          "hsn": "1514",
+          "unit": "crate",
+          "gst_rate": 0.05
+        },
+        {
+          "product": "Aashirvaad Atta",
+          "rate": 380.0,
+          "hsn": "1101",
+          "unit": "bag",
+          "gst_rate": 0.05
+        }
+      ],
+      "superseded_by": null
+    }
+  ],
+  "rate_quotes": [],
+  "bills": [
+    {
+      "bill_id": "SP/4401",
+      "distributor_code": "SP",
+      "bill_date": "2026-10-05",
+      "source_file": "SP-4401.jpg",
+      "items": [
+        {
+          "product": "Fortune Mustard Oil",
+          "quantity": 10.0,
+          "rate": 1450.0,
+          "amount": 14500.0,
+          "gst_rate": null,
+          "gst_amount": null,
+          "hsn": "1514",
+          "is_free": false,
+          "discount_amount": 0.0,
+          "unit": ""
+        },
+        {
+          "product": "Aashirvaad Atta",
+          "quantity": 5.0,
+          "rate": 380.0,
+          "amount": 1900.0,
+          "gst_rate": null,
+          "gst_amount": null,
+          "hsn": "1101",
+          "is_free": false,
+          "discount_amount": 0.0,
+          "unit": ""
+        }
+      ],
+      "subtotal": 16400.0,
+      "tax_total": 0.0,
+      "grand_total": 16400.0,
+      "delivery_date": null,
+      "ocr_confidence": 0.95,
+      "is_paid": false,
+      "payment_ref": null,
+      "raw_text": ""
+    },
+    {
+      "bill_id": "SP/4412",
+      "distributor_code": "SP",
+      "bill_date": "2026-10-07",
+      "source_file": "SP-4412.jpg",
+      "items": [
+        {
+          "product": "Fortune Mustard Oil",
+          "quantity": 10.0,
+          "rate": 1450.0,
+          "amount": 14500.0,
+          "gst_rate": null,
+          "gst_amount": null,
+          "hsn": "1514",
+          "is_free": false,
+          "discount_amount": 0.0,
+          "unit": ""
+        },
+        {
+          "product": "Aashirvaad Atta",
+          "quantity": 5.0,
+          "rate": 380.0,
+          "amount": 1900.0,
+          "gst_rate": null,
+          "gst_amount": null,
+          "hsn": "1101",
+          "is_free": false,
+          "discount_amount": 0.0,
+          "unit": ""
+        }
+      ],
+      "subtotal": 16400.0,
+      "tax_total": 0.0,
+      "grand_total": 16400.0,
+      "delivery_date": null,
+      "ocr_confidence": 0.94,
+      "is_paid": false,
+      "payment_ref": null,
+      "raw_text": ""
+    }
+  ],
+  "schemes": [],
+  "payments": [
+    {
+      "payment_id": "UPI-upi_sp_4380",
+      "distributor_code": "SP",
+      "amount": 5000.0,
+      "payment_date": "2026-10-05",
+      "upi_ref": "427918239012",
+      "source_file": "upi_sp_4380.jpg",
+      "matched_bill_id": null,
+      "is_verified": true
+    }
+  ],
+  "statements": [
+    {
+      "distributor_code": "SP",
+      "statement_date": "2026-10-10",
+      "source_file": "statement_sp_10oct.jpg",
+      "entries": [
+        {
+          "bill_id": "SP/4380",
+          "bill_date": "2026-10-02",
+          "amount": 5000.0,
+          "status": "due"
+        }
+      ]
+    }
+  ],
+  "owner_feedback": []
+}

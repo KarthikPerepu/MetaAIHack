@@ -1,0 +1,8 @@
+{
+  "amount": 8000.0,
+  "payment_date": "2026-10-11",
+  "status": "success",
+  "upi_ref": "428901239841",
+  "payee_name": "Banaras Wholesale",
+  "confidence": 0.96
+}

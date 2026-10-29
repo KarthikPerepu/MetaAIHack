@@ -1,0 +1,22 @@
+{
+  "distributor_name": "Ganga Traders",
+  "distributor_code": "GT",
+  "version": "v1",
+  "effective_date": "2026-10-01",
+  "entries": [
+    {
+      "product": "Sunrise Glucose Biscuit",
+      "rate": 410.0,
+      "hsn": "1905",
+      "unit": "carton",
+      "gst_rate": 18
+    },
+    {
+      "product": "Parle-G 250g",
+      "rate": 28.0,
+      "hsn": "1905",
+      "unit": "piece",
+      "gst_rate": 18
+    }
+  ]
+}

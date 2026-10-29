@@ -1,0 +1,16 @@
+{
+  "bill_id": "BC/2091",
+  "class": "gst_error",
+  "status": "confirmed",
+  "amount_inr": 1000.0,
+  "evidence": [
+    "BC-2091.jpg: HSN 1704 charged @ 28% GST (₹2,800 on base ₹10,000)",
+    "statutory_hsn_rates: HSN 1704 statutory rate is 18%"
+  ],
+  "action": {
+    "supervised": "draft_whatsapp_reply",
+    "autonomous": "send_whatsapp_reply"
+  },
+  "confidence": 0.93,
+  "reasoning": "HSN 1704 billed at 28% GST instead of standard 18%. Excess tax charged: ₹1,000."
+}

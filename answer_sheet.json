@@ -1,0 +1,217 @@
+{
+  "report_date": "2026-10-20",
+  "mode": "supervised",
+  "summary": {
+    "total_findings": 11,
+    "confirmed": 5,
+    "conflicts": 0,
+    "cannot_determine": 6,
+    "total_amount": 23080.0,
+    "recoverable_amount": 23080.0,
+    "by_class": {
+      "rate_mismatch": {
+        "count": 1,
+        "amount": 1000.0,
+        "bill_ids": [
+          "KP/8801"
+        ]
+      },
+      "duplicate_bill": {
+        "count": 1,
+        "amount": 12000.0,
+        "bill_ids": [
+          "BW/3019"
+        ]
+      },
+      "paid_but_shown_due": {
+        "count": 1,
+        "amount": 8000.0,
+        "bill_ids": [
+          "BW/2900"
+        ]
+      },
+      "gst_error": {
+        "count": 1,
+        "amount": 1300.0,
+        "bill_ids": [
+          "BW/3025"
+        ]
+      },
+      "scheme_not_given": {
+        "count": 1,
+        "amount": 780.0,
+        "bill_ids": [
+          "KP/8801"
+        ]
+      }
+    },
+    "by_distributor": {
+      "KP": 1780.0,
+      "BW": 21300.0
+    },
+    "avg_confidence": 0.932
+  },
+  "findings": [
+    {
+      "bill_id": "KP/8801",
+      "class": "rate_mismatch",
+      "status": "confirmed",
+      "amount_inr": 1000.0,
+      "evidence": [
+        "ratelist_kp.pdf: Fortune Atta 10kg | 390.0",
+        "KP-8801.jpg: Fortune Atta 10kg 50 x 410.0"
+      ],
+      "confidence": 1.0,
+      "reasoning": "Rate list v1 effective 2026-10-10 shows ₹390.0 for Fortune Atta 10kg. Bill dated 2026-10-14 charges ₹410.0. Difference: ₹20.0 × 50 = ₹1000.0",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      }
+    },
+    {
+      "bill_id": "BW/3019",
+      "class": "duplicate_bill",
+      "status": "confirmed",
+      "amount_inr": 12000.0,
+      "evidence": [
+        "BW-3019.jpg: Bill BW/3019 dated 2026-10-14, total ₹12000.0",
+        "BW-3011.jpg: Bill BW/3011 dated 2026-10-12, total ₹12000.0",
+        "Items match: [Tata Tea Gold 500g×40] vs [Tata Tea Gold 500g×40]"
+      ],
+      "confidence": 1.0,
+      "reasoning": "Bill BW/3019 appears to be a duplicate of BW/3011. Items match with 100% similarity, dates 2 days apart. Full value of repeat: ₹12000.0",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      }
+    },
+    {
+      "bill_id": "BW/2900",
+      "class": "paid_but_shown_due",
+      "status": "confirmed",
+      "amount_inr": 8000.0,
+      "evidence": [
+        "upi_bw_2900.jpg: UPI Ref 428901239841, ₹8000.0 paid on 2026-10-11",
+        "statement_bw_18oct.jpg: Statement shows bill BW/2900 still due ₹8000.0"
+      ],
+      "confidence": 0.95,
+      "reasoning": "Payment of ₹8000.0 on 2026-10-11 (Ref: 428901239841) was made, but statement dated 2026-10-18 lists bill BW/2900 as due.",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      }
+    },
+    {
+      "bill_id": "BW/3025",
+      "class": "gst_error",
+      "status": "confirmed",
+      "amount_inr": 1300.0,
+      "evidence": [
+        "BW-3025.jpg: Amul Condensed Milk (HSN 0402) taxed at 18%",
+        "Correct GST rate for HSN 0402: 5%"
+      ],
+      "confidence": 0.9,
+      "reasoning": "Amul Condensed Milk (HSN 0402) charged GST at 18% instead of correct 5%. Total excess tax: ₹1300.00.",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      }
+    },
+    {
+      "bill_id": "KP/8801",
+      "class": "scheme_not_given",
+      "status": "confirmed",
+      "amount_inr": 780.0,
+      "evidence": [
+        "voice:voice_note_kashi.opus: Laxmi Stores ji 50 bag atta par 2 bag free scheme hai.",
+        "KP-8801.jpg: 0 of 2 free units shown for Fortune Atta 10kg",
+        "ratelist_kp.pdf: Fortune Atta 10kg rate ₹390.0"
+      ],
+      "confidence": 0.81,
+      "reasoning": "Scheme agreed by Vijay Kashi Provisions on 2026-10-12: Buy 50, get 2 free for Fortune Atta 10kg. Bill KP/8801 has 50 Fortune Atta 10kg; 2 of 2 free units are missing. Missing value: 2 × ₹390.0 = ₹780.0",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      }
+    },
+    {
+      "bill_id": "BW/3011",
+      "class": "rate_mismatch",
+      "status": "cannot_determine",
+      "amount_inr": 0.0,
+      "evidence": [],
+      "confidence": 0.0,
+      "reasoning": "",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      },
+      "missing": "Rate list for Rajesh Banaras Wholesale covering 2026-10-12",
+      "ask": "distributor (Rajesh Banaras Wholesale) — request rate list"
+    },
+    {
+      "bill_id": "BW/3019",
+      "class": "rate_mismatch",
+      "status": "cannot_determine",
+      "amount_inr": 0.0,
+      "evidence": [],
+      "confidence": 0.0,
+      "reasoning": "",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      },
+      "missing": "Rate list for Rajesh Banaras Wholesale covering 2026-10-14",
+      "ask": "distributor (Rajesh Banaras Wholesale) — request rate list"
+    },
+    {
+      "bill_id": "BW/3025",
+      "class": "rate_mismatch",
+      "status": "cannot_determine",
+      "amount_inr": 0.0,
+      "evidence": [],
+      "confidence": 0.0,
+      "reasoning": "",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      },
+      "missing": "Rate list for Rajesh Banaras Wholesale covering 2026-10-16",
+      "ask": "distributor (Rajesh Banaras Wholesale) — request rate list"
+    },
+    {
+      "bill_id": "BW/3011",
+      "class": "gst_error",
+      "status": "cannot_determine",
+      "amount_inr": 0.0,
+      "evidence": [],
+      "confidence": 0.0,
+      "reasoning": "",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      },
+      "missing": "GST mapping for HSN 0902 (Tata Tea Gold 500g)",
+      "ask": "distributor (Rajesh Banaras Wholesale) — request a complete tax invoice and a rate list with HSN codes / GST mapping"
+    },
+    {
+      "bill_id": "BW/3019",
+      "class": "gst_error",
+      "status": "cannot_determine",
+      "amount_inr": 0.0,
+      "evidence": [],
+      "confidence": 0.0,
+      "reasoning": "",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      },
+      "missing": "GST mapping for HSN 0902 (Tata Tea Gold 500g)",
+      "ask": "distributor (Rajesh Banaras Wholesale) — request a complete tax invoice and a rate list with HSN codes / GST mapping"
+    },
+    {
+      "bill_id": "KP/8801",
+      "class": "gst_error",
+      "status": "cannot_determine",
+      "amount_inr": 0.0,
+      "evidence": [],
+      "confidence": 0.0,
+      "reasoning": "",
+      "action": {
+        "supervised": "draft_whatsapp_reply"
+      },
+      "missing": "GST mapping for HSN 1101 (Fortune Atta 10kg)",
+      "ask": "distributor (Vijay Kashi Provisions) — request a complete tax invoice and a rate list with HSN codes / GST mapping"
+    }
+  ]
+}

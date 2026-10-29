@@ -1,0 +1,19 @@
+{
+  "bill_id": "BW/3011",
+  "distributor_code": "BW",
+  "bill_date": "2026-10-12",
+  "delivery_date": "2026-10-12",
+  "subtotal": 12000.0,
+  "tax_total": 0.0,
+  "grand_total": 12000.0,
+  "ocr_confidence": 0.94,
+  "items": [
+    {
+      "product": "Tata Tea Gold 500g",
+      "quantity": 40.0,
+      "rate": 300.0,
+      "amount": 12000.0,
+      "hsn": "0902"
+    }
+  ]
+}

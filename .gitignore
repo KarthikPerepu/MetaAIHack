@@ -1,0 +1,22 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# API credentials and local environment files
+.env
+.env.*
+!.env.example
+
+# State runtime data (transient runs)
+# state/

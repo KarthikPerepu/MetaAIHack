@@ -1,0 +1,16 @@
+{
+  "bill_id": "GT/1187",
+  "class": "rate_mismatch",
+  "status": "confirmed",
+  "amount_inr": 300.0,
+  "evidence": [
+    "ratelist_v2.pdf: Sunrise Glucose Biscuit | 395",
+    "GT-1187.jpg: Sunrise Glucose 20 x 410"
+  ],
+  "action": {
+    "supervised": "draft_whatsapp_reply",
+    "autonomous": "send_whatsapp_reply"
+  },
+  "confidence": 0.91,
+  "reasoning": "Rate list v2 effective 3 Oct shows ₹395. Bill dated 9 Oct charges ₹410. Difference: ₹15 × 20 = ₹300."
+}

@@ -1,0 +1,9 @@
+{
+  "bill_id": "BC/2091",
+  "class": "gst_error",
+  "status": "confirmed",
+  "amount_inr": 1000.0,
+  "evidence": [
+    "BC-2091.jpg: HSN 1704 charged at 28% instead of 18%"
+  ]
+}

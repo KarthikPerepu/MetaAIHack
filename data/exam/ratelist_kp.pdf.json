@@ -1,0 +1,22 @@
+{
+  "distributor_name": "Kashi Provisions",
+  "distributor_code": "KP",
+  "version": "v1",
+  "effective_date": "2026-10-10",
+  "entries": [
+    {
+      "product": "Fortune Atta 10kg",
+      "rate": 390.0,
+      "hsn": "1101",
+      "unit": "bag",
+      "gst_rate": 5
+    },
+    {
+      "product": "Tata Salt 1kg",
+      "rate": 25.0,
+      "hsn": "2501",
+      "unit": "packet",
+      "gst_rate": 5
+    }
+  ]
+}

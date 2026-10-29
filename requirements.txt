@@ -1,0 +1,40 @@
+# Khata Harness - Dependencies
+# Python 3.11+
+
+# Llama API client
+openai>=1.30.0
+
+# PDF parsing
+pdfplumber>=0.10.0
+PyPDF2>=3.0.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Speech-to-text (open model)
+openai-whisper>=20231117
+# Fallback: faster-whisper for speed
+faster-whisper>=1.0.0
+
+# OCR fallback
+pytesseract>=0.3.10
+
+# Date/time handling
+python-dateutil>=2.8.0
+
+# JSON schema validation
+jsonschema>=4.20.0
+
+# Fuzzy matching for duplicate detection
+thefuzz[speedup]>=0.22.0
+rapidfuzz>=3.5.0
+
+# Structured logging
+structlog>=24.1.0
+
+# CLI
+click>=8.1.0
+
+# Testing
+pytest>=8.0.0
+pytest-cov>=4.1.0

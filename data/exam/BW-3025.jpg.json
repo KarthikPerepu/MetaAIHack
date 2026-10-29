@@ -1,0 +1,20 @@
+{
+  "bill_id": "BW/3025",
+  "distributor_code": "BW",
+  "bill_date": "2026-10-16",
+  "subtotal": 10000.0,
+  "tax_total": 1800.0,
+  "grand_total": 11800.0,
+  "ocr_confidence": 0.93,
+  "items": [
+    {
+      "product": "Amul Condensed Milk",
+      "quantity": 50.0,
+      "rate": 200.0,
+      "amount": 10000.0,
+      "hsn": "0402",
+      "gst_rate": 0.18,
+      "gst_amount": 1800.0
+    }
+  ]
+}

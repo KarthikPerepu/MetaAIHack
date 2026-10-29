@@ -1,0 +1,16 @@
+{
+  "bill_id": "SP/4412",
+  "class": "duplicate_bill",
+  "status": "confirmed",
+  "amount_inr": 16400.0,
+  "evidence": [
+    "SP-4401.jpg: 10 crates Fortune Mustard Oil, 5 bags Aashirvaad Atta dated 2026-10-05",
+    "SP-4412.jpg: identical line items and quantities within 2 days"
+  ],
+  "action": {
+    "supervised": "draft_whatsapp_reply",
+    "autonomous": "draft_whatsapp_reply"
+  },
+  "confidence": 0.94,
+  "reasoning": "Bill SP/4412 duplicates delivery items and quantities of SP/4401 from 2 days prior. Full repeat value ₹16,400."
+}

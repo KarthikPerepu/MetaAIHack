@@ -1,0 +1,10 @@
+{
+  "bill_id": "SP/4380",
+  "class": "paid_but_shown_due",
+  "status": "confirmed",
+  "amount_inr": 5000.0,
+  "evidence": [
+    "upi_sp_4380.jpg: payment on 2026-10-05",
+    "statement_sp_10oct.jpg: still listed as due"
+  ]
+}
