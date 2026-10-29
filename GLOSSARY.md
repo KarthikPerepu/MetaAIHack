@@ -1,4 +1,10 @@
 # Khata Glossary
+
+> **Provenance note.** This glossary came with the Gemini-generated starting repository, not from the
+> organisers' kit (only `Khata_Problem_Statement.docx` is original). The harness follows it, but every
+> number it depends on is kept in one place so the official values can be dropped in:
+> GST by HSN in `harness/data/gst_rates.json`; credit defaults, windows and limits in `harness/config.py` (`Policy`).
+
 ## Terms, Formulas & Windows
 
 > Every rule below governs how the harness classifies, computes amounts, and

@@ -1,236 +1,144 @@
-# Khata (खाता)
+# Khata (खाता) — find the money leaking out of a shop's WhatsApp
 
-> **Find the money leaking out of a kirana shop's WhatsApp.**  
-> Built for the **Meta AI Hackathon 2026** using open Meta Llama models.
+Meta AI Hackathon 2026. A small set of Llama-powered agents reads a kirana shop's exported
+WhatsApp chats (chat text, bill photos, PDF rate lists, UPI screenshots, statements, Hinglish
+voice notes), remembers on disk what each distributor agreed, and reports six kinds of leak
+with the rupee amount, the exact chat line or bill row that proves it, a confidence, and the
+action that is safe in the chosen mode.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Score: 100/100](https://img.shields.io/badge/practice%20score-100%2F100-success.svg)](grader/grader.py)
-[![Capping Violations: 0](https://img.shields.io/badge/capping%20mistakes-0%20(clean)-brightgreen.svg)](grader/grader.py)
-[![Evals: 36 passed](https://img.shields.io/badge/evals-36%2F36%20passed-green.svg)](evals/)
+| Class | Example from the data |
+|---|---|
+| rate_mismatch | GT/1187 billed ₹410, rate list v2 (in force from 3 Oct) says ₹395 → ₹300 |
+| duplicate_bill | SP/4412 repeats SP/4401's delivery → ₹16,400 |
+| scheme_not_given | voice note "20 carton lo, 2 carton free milega", no free goods on GT/1187 → ₹790 |
+| paid_but_shown_due | ₹5,000 paid by UPI on 5 Oct, still due on the 10 Oct statement → ₹5,000 |
+| gst_error | HSN 1704 charged 28 % instead of 18 % → ₹1,000 |
+| credit_period_risk | unpaid bill crossing its credit days within 7 days → interest at risk |
 
----
+Plus **conflict** (two trusted sources disagree → owner decides) and **cannot_determine**
+(a document is missing → says what and who has it).
 
-## 🏪 The Problem
+How it works, the decisions behind it, and the limits: **[DESIGN.md](DESIGN.md)**.
 
-A kirana shop in India (like **Shanti General Store**, Patna or **Laxmi Stores**, Varanasi) pays ~40 distributor bills a month from 6+ suppliers. Every transaction lives on WhatsApp:
-- Salesmen send photo bills (often skewed, blurred, or tilted).
-- Schemes are agreed verbally in Hinglish voice notes (*"10 carton pe 1 free"*).
-- Rate lists arrive as PDFs on Monday and updated ones on Thursday.
-- Payments go via UPI screenshots in the same chat.
+## Quick start
 
-Because nobody cross-references past chats and rate lists before paying, thousands of rupees leak out every month. **Khata** is an autonomous and supervised AI harness that stops this leakage.
-
----
-
-## 🔍 The Six Discrepancy Classes
-
-| # | Discrepancy Class | What It Means | Amount Calculation |
-|---|---|---|---|
-| 1 | `rate_mismatch` | An item billed higher than the rate list in force on the bill date | $(\text{billed rate} - \text{agreed rate}) \times \text{qty}$ |
-| 2 | `duplicate_bill` | The same delivery billed twice, possibly weeks apart with a new bill ID | Full value of the repeat bill |
-| 3 | `scheme_not_given` | Free goods or discount agreed in chat/voice missing on the bill | $\text{free goods qty} \times \text{active rate}$ or discount |
-| 4 | `paid_but_shown_due` | A UPI payment already made still shown as outstanding on account statement | Exact payment amount |
-| 5 | `gst_error` | Wrong GST slab for the item HSN, or tax worked out on the wrong base | Excess tax charged |
-| 6 | `credit_period_risk` | Bill reaching credit terms deadline within 7 days (attracting interest) | Projected interest that would be incurred |
-
-### Cross-Cutting Behaviors
-- **`conflict`**: Raised when two trusted authorities disagree (e.g. salesman voice note says ₹410, signed rate list says ₹395). Escalated to owner.
-- **`cannot_determine`**: When verification requires an absent document (e.g. rate list never sent). The harness names who has it (e.g. *"distributor — request rate list"*).
-
----
-
-## 🛡️ Safety & Escalation Policies
-
-The hackathon defines **5 fatal mistakes** that cap your score at 40 max. Khata enforces the safety gates below; unresolved trusted-source conflicts remain with the owner.
-
-| Mistake | Risk | How Khata Prevents It |
-|---|---|---|
-| **CM1** | Following prompt injection in chat/bill | Screens chat before identification, quarantines unsafe forwarded content, and screens extracted bill, PDF, and voice text. |
-| **CM2** | Treating one-time schemes as permanent | Verbal schemes default to `one_time`; applicability is derived from the earliest qualifying bill without mutating state during reports. |
-| **CM3** | Sending to distributor in supervised mode | In supervised mode, external communications are strictly `draft_whatsapp_reply`. |
-| **CM4** | Escalating > 60% of findings to owner | Missing-document cases use draft requests to the document holder; excess missing-document actions become internal notes while preserving the `cannot_determine` result and its `ask` field. Conflicts remain owner decisions. |
-| **CM5** | Autonomous send on unsafe cases (≥ 3 fails) | 4-part safety check: evidence complete, zero conflicts, amount $< ₹2,000$, and reversible. |
-
----
-
-## 🚀 Quickstart
-
-### Prerequisites
-- Python 3.11+
-- Virtual environment tool
-
-### 1. Setup
-```powershell
-# Using Makefile
-make setup
-
-# Or manual / Windows:
-python -m venv .venv
-# On Windows: .venv\Scripts\activate
-# On Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Replay Practice Set & Grade (Score: 100.0 / 100)
 ```bash
-# Using Makefile
-make grade
-
-# Or using the Windows runner:
-.\run.ps1 grade
-
-# Or manual CLI:
-python harness/harness.py ingest data/practice/week_01 --state-dir state/practice
-python harness/harness.py report --as-of 2026-10-15 --mode supervised --state-dir state/practice -o report_practice.json
-python grader/grader.py report_practice.json data/practice/answers/ --verbose
+make setup            # Python 3.11+ venv from harness/requirements.txt
+make grade            # replay practice weeks (+ owner feedback), print the score card
+make sheet            # exam chats -> answer_sheet.json (per class: count, rupees, bill ids)
+make eval             # 85 eval cases + our two-week eval shop, graded
+make demo             # eval shop from real photos / PDFs only (sidecar JSON ignored)
 ```
 
-### 3. Run Exam Dataset
-```bash
-# Using Makefile
-make sheet
+Windows PowerShell: `.\run.ps1 setup | grade | sheet | eval | eval-shop | demo`.
 
-# Or using the Windows runner:
-.\run.ps1 sheet
+The three commands the grader calls (each in a fresh process; everything learnt is kept under `--state-dir`):
 
-# Generates answer_sheet.json
-```
-
-### 4. Run Custom Eval Suite (23 Tests)
-```bash
-# Using Makefile
-make eval
-
-# Or using the Windows runner:
-.\run.ps1 eval
-
-# Or pytest directly:
-python -m pytest evals/ -v --tb=short
-```
-
----
-
-## 💻 CLI Usage
-
-The harness provides 3 primary commands:
-
-### `ingest <week_dir> --state-dir <dir>`
-Parses WhatsApp exports (`_chat.txt`, attached bill photos, PDF rate lists, UPI screenshots, `.opus` voice notes) and updates persistent distributor cards on disk.
 ```bash
 python harness/harness.py ingest data/practice/week_01 --state-dir state/practice
-```
-
-### `report --as-of YYYY-MM-DD --mode [supervised|autonomous] --state-dir <dir> [-o output.json]`
-Runs all 6 discrepancy detectors and outputs the structured findings JSON.
-```bash
 python harness/harness.py report --as-of 2026-10-15 --mode supervised --state-dir state/practice > report.json
+python harness/harness.py feedback data/practice/feedback/feedback.json --state-dir state/practice
 ```
 
-### `feedback <feedback.json> --state-dir <dir>`
-Learns from owner approvals, corrections, credit term agreements, or payment notifications.
-```bash
-python harness/harness.py feedback data/practice/feedback/owner_feedback.json --state-dir state/practice
-```
+`report` also takes `--mode autonomous` and `-o file.json`; `sheet` takes the same flags as `report`.
 
----
+## Models and keys
 
-## 🏗️ Architecture
+Keys come only from the environment (never from files in the repo):
 
-```
- WhatsApp Export
-        │
-        ▼
- Ingestion Pipeline (Chat Parser, Llama Vision, Whisper STT, Safety Filter)
-        │
-        ▼
- Knowledge Store (Persistent per-distributor JSON cards on disk)
-        │
-        ▼
- Analysis Engine (Rate Mismatch, Duplicate, Scheme, Paid Due, GST, Credit Risk)
-        │
-        ▼
- Safety & Policy Gate (Supervised Draft vs. 4-Part Autonomous Check)
-        │
-        ▼
- Structured JSON Report (Findings, Rupee amounts, Evidence lines, Confidence)
-```
+| Variable | Meaning |
+|---|---|
+| `LLAMA_API_KEY` (alias `MODEL_API_KEY`) | key for an OpenAI-compatible endpoint serving Meta Llama |
+| `LLAMA_BASE_URL` | default `https://api.llama.com/compat/v1`; also Together, Groq, a local Ollama… |
+| `LLAMA_VISION_MODEL`, `LLAMA_TEXT_MODEL` | default `Llama-4-Maverick-17B-128E-Instruct-FP8` (set the id your host uses) |
+| `WHISPER_MODEL` | open Whisper size for voice notes (default `small`, runs locally, no key) |
+| `KHATA_OFFLINE=1` | never call a model; deterministic readers only |
+| `KHATA_IGNORE_SIDECARS=1` | ignore `<file>.json` / `<file>.txt` extraction caches and read the real media |
 
----
-
-## ⚙️ Environment Configuration
-
-The API key is read from `LLAMA_API_KEY` (or `MODEL_API_KEY`). Do not paste it into Python files or commit it. For Windows PowerShell, set the values in the same terminal where you run the commands:
 ```powershell
-$env:LLAMA_API_KEY = "your-provider-api-key"
-$env:LLAMA_BASE_URL = "https://your-provider/v1"
-$env:LLAMA_TEXT_MODEL = "your-text-model-id"
-$env:LLAMA_VISION_MODEL = "your-vision-model-id"
+$env:LLAMA_API_KEY = "..."; $env:LLAMA_BASE_URL = "https://api.llama.com/compat/v1"
 ```
 
-`LLAMA_BASE_URL` and both model IDs must match the provider that issued the key; the defaults target the older `api.llama.com` Llama API. Meta's current Model API uses `https://api.meta.ai/v1` and `muse-spark-1.3` for text and image understanding; this is Muse Spark rather than a Llama model. Check your hackathon/provider instructions before choosing. The harness accepts `MODEL_API_KEY` as an alias for `LLAMA_API_KEY`.
+Where Llama is used: reading bill photos, UPI screenshots and statements (vision, with rotation
+retry for sideways photos), interpreting PDFs that the table parser cannot, understanding Hinglish /
+Devanagari messages and transcripts, a second opinion on suspicious forwarded messages, mapping
+bill item names to rate-list names, and parsing free-text owner feedback. Rupee arithmetic is always
+done in Python, and every number the model returns must appear in the source text.
 
-Whisper speech-to-text runs locally and needs no API key. Without model credentials, deterministic sidecar inputs and local fallback parsing still allow offline tests and grading, but live image interpretation is not being exercised.
+Without a key the harness still runs: PDFs via pdfplumber, photos via tesseract OCR (if installed),
+messages via the rule-based Hinglish / Devanagari parser.
 
----
+## Results (local grader, `grader/grader.py`)
 
-## 📁 Repository Structure
+| Run | Result |
+|---|---|
+| Practice | 100 / 100 — 5 / 5 found, ₹0 wrongly claimed, clean look-alike GT/1179 left alone |
+| Our eval shop (third shop, 2 weeks, feedback, 12-item answer key) | 100 / 100 with every rubric component measured |
+| Same, real photos and PDFs only, no model | 7 / 8 found, 0 false positives (the miss is the voice-note scheme; no speech model offline) |
+| Exam | rate ₹1,000 · duplicate ₹12,000 · scheme ₹780 · paid-due ₹8,000 · GST ₹1,300 · 3 bills cannot_determine (Banaras Wholesale never sent a rate list) |
 
-```
-├── Makefile                 # Standard hackathon targets (setup, grade, sheet, eval, clean)
-├── run.ps1                  # Windows PowerShell runner for identical targets
-├── requirements.txt         # Core dependencies (Python 3.11+)
-├── problem_statement.txt    # Official hackathon problem statement
-├── GLOSSARY.md              # Official definitions, formulas, and windows
-├── DESIGN.md                # System architecture, trade-offs, and future work
-├── AI_USE.md                # AI coding tools disclosure
-├── harness/
-│   ├── harness.py           # CLI entrypoint (ingest, report, feedback)
-│   ├── config.py            # Global configuration & safety thresholds
-│   ├── report.py            # Aggregates detectors, formats findings, enforces caps
-│   ├── feedback.py          # Learns from owner feedback
-│   ├── agents/
-│   │   └── llama_client.py  # Llama API wrapper with fallback handlers
-│   ├── knowledge/
-│   │   ├── models.py        # Strongly-typed dataclasses & domain models
-│   │   └── store.py         # On-disk state persistence per distributor
-│   ├── ingest/
-│   │   ├── pipeline.py      # Multimodal ingest orchestrator
-│   │   ├── chat_parser.py   # WhatsApp _chat.txt parser (DD/MM/YY aware)
-│   │   ├── bill_ocr.py      # Vision OCR for bill photos with sidecar support
-│   │   ├── pdf_parser.py    # PDF table extractor for rate lists
-│   │   ├── voice_stt.py     # Whisper audio transcriber for voice notes
-│   │   ├── upi_parser.py    # UPI screenshot payment parser
-│   │   └── safety.py        # Prompt injection & safety checker
-│   └── detectors/
-│       ├── base.py          # Base abstract detector class
-│       ├── rate_mismatch.py # Temporal rate list verification
-│       ├── duplicate_bill.py# Fuzzy line-item & date duplicate detection
-│       ├── scheme_not_given.py # One-time vs permanent scheme detector
-│       ├── paid_but_shown_due.py # Payment-to-statement reconciliation
-│       ├── gst_error.py     # HSN GST rate & tax base validation
-│       └── credit_period_risk.py # 7-day interest risk window
-├── grader/
-│   └── grader.py            # Official 100-pt rubric & capping mistake evaluator
-├── data/
-│   ├── examples/            # 6 worked examples with expected findings
-│   ├── practice/            # Week 01 chats, attachments, and answers
-│   └── exam/                # Level 2 exam dataset (Laxmi Stores, Varanasi)
-└── evals/                   # 23 custom automated test cases across all classes
+The grader is a strict stand-in we wrote; the judges' own grader is not in this repo.
+
+## Output
+
+`report.json` → `{as_of, mode, shop, summary, findings[], safety_alerts[], pending_requests[], feedback_processed}`.
+A finding follows the glossary schema:
+
+```json
+{
+  "bill_id": "GT/1187", "class": "rate_mismatch", "status": "confirmed", "distributor": "GT",
+  "amount_inr": 300.0,
+  "evidence": ["ratelist_v2.pdf: Sunrise Glucose Biscuit | 395",
+               "_chat.txt:L7: Ramesh Ganga Traders: <attached: ratelist_v2.pdf>",
+               "GT-1187.jpg: row 1: Sunrise Glucose Biscuit 20 x 410 = 8200",
+               "_chat.txt:L22: Ramesh Ganga Traders: <attached: GT-1187.jpg>"],
+  "action": {"supervised": "draft_whatsapp_reply", "autonomous": "send_whatsapp_reply"},
+  "confidence": 0.95,
+  "reasoning": "ratelist_v2.pdf (v2, in force from 2026-10-03) lists Sunrise Glucose Biscuit at ₹395. Bill GT/1187 dated 2026-10-09 charges ₹410: (₹410 − ₹395) × 20 = ₹300. Amount is before GST.",
+  "draft_message": "Namaste Ramesh ji, bill GT/1187 (2026-10-09) mein Sunrise Glucose Biscuit ₹410 lagaya hai, rate list mein ₹395 hai (20 × ₹15). Kul ₹300 ka credit note bhej dijiye. Dhanyavaad."
+}
 ```
 
----
+Conflicts add `sources`; cannot_determine adds `missing` and `ask`; autonomous mode adds the
+`safety_check` it ran.
 
-## 🏆 Rubric Performance
+## Safety
 
-| Evaluation Category | Max Points | Khata Score |
-|---|:---:|:---:|
-| Finding Problems & Evidence | 25 | **25.0** |
-| Rupee Recovery Accuracy | 20 | **20.0** |
-| Temporal Rate Updates | 15 | **15.0** |
-| Feedback Learning | 10 | **10.0** |
-| Conflicts & Missing Documents | 10 | **10.0** |
-| Actions & Confidence Tracking | 15 | **15.0** |
-| Leaving Clean Bills Alone | 5 | **5.0** |
-| **Total Practice Grade** | **100** | **100.0 / 100** |
+* Never pays, never shares a PIN or bank details: there is no payment action in the code, and drafts are scrubbed.
+* Never follows instructions found in chats, bills, PDFs or voice notes: they are quarantined, listed in
+  `safety_alerts`, and create no records. A bill with instructions printed on it is still audited.
+* Supervised mode only drafts. Autonomous mode sends only when evidence is complete, nothing conflicts,
+  the amount is under ₹2,000, the message is a reversible query, and confidence ≥ 0.75.
+* Owner escalations stay under 60 % of findings; conflicts are never hidden.
 
-*Evaluation suite: 36 passed, 0 failed, 0 capping violations.*
+## Live demo: where to make a change
+
+| Request | Where |
+|---|---|
+| Change the autonomous limit, credit defaults, 7-day window, duplicate window | `harness/config.py` → `Policy` |
+| Add / fix a GST rate for an HSN | `harness/data/gst_rates.json` |
+| New scheme wording ("ek peti ke saath ek dabba muft") | `SCHEME_PATTERNS` in `harness/agents/message_agent.py` + a case in `evals/test_parsing.py` |
+| New injection phrasing | `OVERRIDE` / `CREDENTIAL` in `harness/ingest/safety.py` + a case in `evals/test_parsing.py` |
+| Change how a class is decided or valued | `harness/detectors/<class>.py` (one file per class) |
+| Change draft wording | `_draft` in `harness/policy.py` |
+
+## Repository
+
+```
+harness/
+  harness.py            CLI: ingest / report / feedback / sheet
+  config.py             env config + policy numbers
+  analysis.py           as-of view: rate in force, quotes, payments, credit terms, owner decisions
+  report.py             runs detectors, merges, caps escalation, actions, answer sheet
+  policy.py             actions per mode, 4-part safety test, drafts, escalation cap
+  feedback.py           owner answers -> decisions
+  agents/               llama_client (cache, guard), vision_agent, message_agent
+  ingest/               chat_parser, documents, media (pdf/ocr/stt), text_parsers, normalize, safety, pipeline
+  detectors/            one module per class
+  knowledge/            records with provenance; on-disk store
+  data/gst_rates.json   HSN -> GST
+grader/grader.py        strict local grader
+evals/                  85 eval cases; fixtures/ (scenario builder, media renderer); scenarios/annapurna/
+scripts/                render_data_media.py, make_eval_shop.py
+data/                   practice, exam, worked examples
+```

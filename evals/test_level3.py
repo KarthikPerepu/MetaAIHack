@@ -233,7 +233,7 @@ def test_reingest_is_idempotent(tmp_path, state):
     ingest(w.path, state)
     second = report(state, "2026-12-05")
     assert first["findings"] == second["findings"]
-    card = json.loads((state / "distributors" / "RK.json").read_text())
+    card = json.loads((state / "distributors" / "RK.json").read_text(encoding="utf-8"))
     assert len(card["bills"]) == 1 and len(card["rate_lists"]) == 1
 
 
@@ -245,8 +245,23 @@ def test_third_shop_people_are_identified_without_hardcoding(tmp_path, state):
     w.write()
     out = ingest(w.path, state)
     assert out["owner"] == [SHOP]
-    shop = json.loads((state / "shop.json").read_text())
+    shop = json.loads((state / "shop.json").read_text(encoding="utf-8"))
     assert shop["sender_map"][NB] == "NB"            # from the bill number she mentioned
     assert shop["sender_map"][RK] == "RKS"           # initials of "Rathi Kirana Supply"
-    rk = json.loads((state / "distributors" / "RKS.json").read_text())
+    rk = json.loads((state / "distributors" / "RKS.json").read_text(encoding="utf-8"))
     assert rk["name"] == "Rathi Kirana Supply" and rk["contacts"][0]["name"] == "Mohan"
+
+
+def test_owner_found_even_when_never_named(tmp_path, state):
+    w = Week(tmp_path / "week_01", shop="Anil")
+    w.rate_list("2026-12-01 09:01", RK, "rl.pdf", "Rathi Kirana Supply",
+                [{"product": "Dhara Mustard Oil 1L", "rate": 142, "hsn": "1514", "unit": "box"}], effective="2026-12-01")
+    w.msg("2026-12-02 10:00", RK, "20 box lo, 2 box free milega")
+    w.owner("2026-12-02 10:05", "ok bhej do")
+    w.owner("2026-12-03 10:05", "kab aayega maal?")
+    w.bill("2026-12-04 11:00", RK, "RK-7100.jpg", "RK/7100", "2026-12-04", [("Dhara Mustard Oil 1L", 20, 142, "1514")])
+    w.write()
+    out = ingest(w.path, state)
+    assert out["owner"] == ["Anil"]
+    f = pick(report(state, "2026-12-05"), "scheme_not_given", "confirmed")
+    assert f and "accepted the offer" in f[0]["reasoning"]

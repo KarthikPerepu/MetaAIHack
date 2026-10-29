@@ -1,67 +1,24 @@
-# AI Use Disclosure — Khata
+# AI use
 
-> **Compliance with Meta AI Hackathon 2026 Guidelines**  
-> *"Use any AI coding tools you like and list them in AI_USE.md."*
+## Coding tools
 
----
+| Tool | What it did |
+|---|---|
+| Google Gemini (Antigravity) | First version of the repository: package layout, initial detectors, a stand-in glossary, placeholder data with JSON "sidecars", initial tests, docs. |
+| Claude Code (Anthropic Claude Opus) | Audit of that version and the rewrite described in DESIGN.md §1: real media readers, generic distributor identification, as-of reasoning, detector and policy rewrite, feedback learning, the eval suite, the strict local grader, rendered test media, the two-week eval shop, and these docs. |
 
-## 1. Overview of AI Models & Tools Used
+Every change was run against the eval suite; the commit history shows the Gemini baseline and each
+step after it.
 
-In developing the **Khata** harness, AI models and developer assistants were utilized across three distinct layers:
+## Models used by the harness at runtime
 
-| Layer | Tools / Models | Role / Responsibilities |
-|---|---|---|
-| **System Intelligence (Runtime)** | Meta Llama 3 models (via Llama API / local endpoints) | Multimodal bill understanding (vision), scheme extraction from Hinglish voice transcripts, prompt injection classification, autonomous safety validation. |
-| **Speech-to-Text (Runtime)** | OpenAI Whisper / Faster-Whisper | Audio transcription of Hinglish and Devanagari `.opus` voice notes into text. |
-| **Pair-Programming & Engineering** | Claude Opus 4.6 & Gemini 3.8 Flash | Code architecture design, test-driven eval generation, edge-case analysis, rubric verification, refactoring. |
-| **Pair-Programming & Engineering** | OpenAI Codex (GPT-6) | Problem-statement audit, edge-case review, implementation fixes, and report/eval verification. |
+| Model | Use |
+|---|---|
+| Meta Llama vision model (default Llama 4 Maverick; any OpenAI-compatible host) | Reading bill photos, UPI screenshots, statements and scanned rate lists |
+| Meta Llama text model | Hinglish / Devanagari message understanding, PDF interpretation fallback, second opinion on suspicious forwards, product-name mapping, free-text owner feedback |
+| Whisper (open model, local, via faster-whisper) | Speech-to-text for voice notes |
+| Tesseract OCR (open source, local, optional) | Offline fallback for photos when no model key is set |
 
----
-
-## 2. Model Usage in System Runtime
-
-### 2.1 Meta Llama Vision & Reasoning
-- **Distributor Classification**: Identifying suppliers, salesman identities, and business entities from unstructured conversational intros.
-- **Hinglish Scheme Extraction**: Extracting structured scheme records (`buy_qty`, `free_qty`, `product`, `one_time` vs `permanent`) from casual Hindi/English colloquial speech (*"bhaiya 20 carton lo, 2 carton free milega"*).
-- **Prompt Injection Defense**: Evaluates incoming forwarded messages against adversarial injection patterns designed to execute unauthorized transfers or manipulate state.
-- **Heuristic Fallback Design**: All LLM calls are architected with robust regex and heuristic fallback handlers, ensuring zero crashes and graceful degradation even when API tokens are unconfigured or endpoints experience transient network latency.
-
-### 2.2 Speech-to-Text
-- Voice notes received in WhatsApp chats (`.opus` files) are processed via Whisper models to extract Hinglish conversational audio, with support for transcript sidecars.
-
----
-
-## 3. AI-Assisted Development Methodology
-
-### 3.1 Prompt Engineering for Scheme Extraction
-We designed structured JSON-mode prompts for Meta Llama to extract commercial terms reliably:
-```text
-You are an expert Indian FMCG trade accountant. Analyze this Hinglish message:
-"{text}"
-Extract:
-1. is_scheme: bool
-2. product: name of product or 'general'
-3. scheme_type: 'one_time' or 'permanent'
-4. buy_qty: integer or null
-5. free_qty: integer or null
-6. discount_pct: float or null
-Return only valid JSON.
-```
-
-### 3.2 Test-Driven Development (TDD) with AI
-AI pair programming was utilized to create 23 targeted edge-case unit and integration tests in `evals/`:
-- **Temporal boundary testing**: Validating that bills dated before a rate list update are not flagged as mismatches.
-- **One-time scheme single-use**: Validating that once a scheme is applied to a bill, subsequent orders do not trigger duplicate claims.
-- **Autonomous safety boundaries**: Ensuring that financial amounts exceeding ₹2,000 or missing documentation are never auto-sent.
-- **Capping mistake prevention**: Automated checks against all 5 fatal capping mistakes.
-
-### 3.3 Defensive Coding Against Hallucinations
-- Strict typing with Python dataclasses and Enums (`SchemeType`, `FindingStatus`, `SourceType`).
-- Explicit mathematical validation for all rupee computations ($(\text{rate}_{\text{billed}} - \text{rate}_{\text{agreed}}) \times \text{qty}$).
-- Confidence scoring grounded in empirical source authority hierarchy rather than arbitrary LLM output numbers.
-
----
-
-## 4. Human-in-the-Loop Oversight
-- All code, business logic, GST tax slabs, and temporal ordering rules were designed, verified, and benchmarked against the hackathon problem statement and `GLOSSARY.md`.
-- No proprietary API keys or sensitive credentials are saved in repository code or commits.
+Guard rails around the models: untrusted text is wrapped as data, every number a model returns must
+appear in the source, money is computed in Python, results are cached by file hash for reproducible
+reruns. Keys are read only from the environment (`LLAMA_API_KEY`, `LLAMA_BASE_URL`).
