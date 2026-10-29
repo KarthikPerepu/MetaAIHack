@@ -24,6 +24,26 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
+def _load_dotenv() -> None:
+    """Read KEY=value lines from a private .env file in the project root (git-ignored).
+    Values already set in the environment win."""
+    path = DATA_DIR.parent.parent / ".env"
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and not os.environ.get(key):
+            os.environ[key] = value
+
+
+_load_dotenv()
+
+
 def _env(*names: str, default: str = "") -> str:
     for n in names:
         v = os.environ.get(n)

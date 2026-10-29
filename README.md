@@ -55,9 +55,15 @@ Keys come only from the environment (never from files in the repo):
 | `KHATA_OFFLINE=1` | never call a model; deterministic readers only |
 | `KHATA_IGNORE_SIDECARS=1` | ignore `<file>.json` / `<file>.txt` extraction caches and read the real media |
 
+Easiest: copy `.env.example` to `.env` in the project folder and paste your key there. `.env` is
+git-ignored, so it never reaches GitHub. Or set the variables for one terminal session:
+
 ```powershell
 $env:LLAMA_API_KEY = "..."; $env:LLAMA_BASE_URL = "https://api.llama.com/compat/v1"
 ```
+
+The eval suite (`make eval`) never calls the API, so it costs nothing; model answers are cached under
+`--state-dir`, so re-running a report on the same files is free too.
 
 Where Llama is used: reading bill photos, UPI screenshots and statements (vision, with rotation
 retry for sideways photos), interpreting PDFs that the table parser cannot, understanding Hinglish /
