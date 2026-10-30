@@ -195,6 +195,15 @@ requests for the same document from the same distributor (one rate list answers 
 only as a last resort move the least important ones to `pending_requests`. Very small reports are
 left alone.
 
+## What the owner sees
+
+Next to `report.json` we write `report.html`, a single page that works offline on a phone: totals,
+money per distributor, each problem with its proof and a copyable WhatsApp draft, blocked scam
+messages, and open questions. At the top is a short Hinglish message for the owner. We build a plain
+version from the report, then ask Muse Spark to make it read naturally, and we only use Muse's
+version if every amount and bill number in it appears in the report and it never asks for a PIN.
+`check <folder>` runs ingest, report and the page in one step for any new export.
+
 ## Confidence
 
 Confidence is our estimate that both the verdict and the amount are right. It goes down for each
@@ -224,7 +233,7 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
 
 ## Testing
 
-`make eval` (or `.\run.ps1 eval`) runs 89 tests and then replays our own test shop:
+`make eval` (or `.\run.ps1 eval`) runs 93 tests and then replays our own test shop:
 
 - `test_detectors.py`: each problem type with its look-alikes. For example a bill just before a new
   rate list (fine) vs just after (wrong), a re-order vs a duplicate, one-time vs permanent schemes, a
@@ -237,6 +246,8 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
   screenshot and a statement, read with no saved `.json` files.
 - `test_llm_paths.py` and `test_muse_api.py`: the model code checked against a scripted fake model
   and a fake Meta server, since tests shouldn't spend credit.
+- `test_owner_view.py`: the summary and web page, including a fake Muse that tries to slip in a
+  made-up amount (rejected).
 - `test_datasets.py`: practice, exam, and the two-week test shop in `evals/scenarios/annapurna`
   (a new shop, feedback between the weeks, and an answer key covering every trap above).
 

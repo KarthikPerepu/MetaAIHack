@@ -32,6 +32,12 @@ When two trusted sources disagree (say the salesman quotes ₹24 but the rate li
 marks it as a **conflict** and leaves the decision to the owner. When it can't check something
 because a document is missing, it says **cannot_determine**, what's missing, and who has it.
 
+Besides `report.json`, Khata writes a simple web page (`report.html`) the owner can open on a
+phone or laptop: how much to claim back from each distributor, every problem with its proof, a
+"Copy" button on each WhatsApp draft, the scam messages it blocked, and a short Hinglish summary
+for the owner at the top. Muse Spark writes that summary; we only keep it if every amount and bill
+number in it matches the report, so it can't invent anything.
+
 The longer explanation of how it works is in [DESIGN.md](DESIGN.md).
 
 ## Which Meta models we use
@@ -57,7 +63,8 @@ On Windows (PowerShell):
 ```powershell
 .\run.ps1 setup      # install everything into a .venv folder
 .\run.ps1 eval       # run our tests (doesn't use the API)
-.\run.ps1 demo       # run on real photos and voice notes with Muse
+.\run.ps1 demo       # run on real photos and voice notes with Muse, opens the report page
+.\run.ps1 check C:\path\to\export   # check any WhatsApp export folder and open its report page
 .\run.ps1 grade      # practice set, prints a score card
 .\run.ps1 sheet      # exam set, writes answer_sheet.json
 ```
@@ -71,6 +78,9 @@ python harness/harness.py ingest data/practice/week_01 --state-dir state/practic
 python harness/harness.py report --as-of 2026-10-15 --mode supervised --state-dir state/practice > report.json
 python harness/harness.py feedback data/practice/feedback/feedback.json --state-dir state/practice
 ```
+
+`report` can also write the web page: add `--html report.html`. And `check <folder>` does
+ingest + report + page in one go, using the date of the last message.
 
 Each one runs on its own. Whatever Khata learns is saved in the `--state-dir` folder, so the next
 week's chats build on the previous week. `report` also takes `--mode autonomous` and `-o file.json`.
@@ -182,6 +192,8 @@ harness/
   config.py          settings and limits
   analysis.py        works out which rate was valid when, what's been paid, credit terms
   report.py          runs the checks and builds the report
+  summary.py         the short Hinglish message for the owner
+  html_report.py     the web page version of the report
   policy.py          decides what action is safe, writes the drafts
   feedback.py        learns from the owner's answers
   agents/            talking to Muse (photos and messages)

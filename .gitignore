@@ -25,3 +25,5 @@ Thumbs.db
 state/
 report_*.json
 !data/**
+report_*.html
+khata_report/

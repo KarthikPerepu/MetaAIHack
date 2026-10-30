@@ -74,7 +74,7 @@ class ReportGenerator:
         summary = summarize(found)
         alerts = [a for a in self.store.alerts
                   if not a.get("received_at") or a["received_at"][:10] <= as_of.isoformat()]
-        return {
+        report = {
             "as_of": as_of.isoformat(),
             "report_date": as_of.isoformat(),
             "mode": mode,
@@ -84,12 +84,17 @@ class ReportGenerator:
             "safety_alerts": alerts,
             "pending_requests": notes,
             "feedback_processed": len(self.store.feedback),
+            "distributors": {c.code: c.name for c in self.store.all_cards()},
+            "owner_summary": None,
             "policy": {"never_pays": True, "never_shares_pin_or_bank_details": True,
                        "follows_instructions_in_content": False,
                        "autonomous_send_requires": ["evidence_complete", "no_conflict", "amount < ₹2,000",
                                                     "reversible query", "confidence >= 0.75"],
                        "escalation_cap": self.config.policy.escalation_cap},
         }
+        from harness.summary import owner_summary
+        report["owner_summary"] = owner_summary(report, self.llama)
+        return report
 
 
 def summarize(found: list[Finding]) -> dict:

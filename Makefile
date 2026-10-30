@@ -17,14 +17,15 @@ else
 	VPY := $(VENV)/bin/python
 endif
 
-.PHONY: help setup grade sheet eval eval-shop media demo clean
+.PHONY: help setup grade sheet eval eval-shop media demo check clean
 
 help:
 	@echo "make setup      venv + dependencies (Python 3.11+)"
 	@echo "make grade      replay the practice weeks (+ owner feedback) and print the score card"
 	@echo "make sheet      run the exam chats and write answer_sheet.json"
 	@echo "make eval       run our own eval suite (evals/) and the two-week eval shop"
-	@echo "make demo       eval shop with real photos only (sidecars ignored)"
+	@echo "make demo       eval shop with real photos only (sidecars ignored), writes report_demo.html"
+	@echo "make check DIR=folder   check any WhatsApp export folder, writes khata_report/<folder>/report.html"
 	@echo "make clean      remove venv, state and generated reports"
 
 setup:
@@ -64,16 +65,20 @@ eval-shop:
 	$(PYTHON) grader/grader.py report_annapurna.json $(SHOP)/answers --data $(SHOP)/week_01 --data $(SHOP)/week_02 --verbose
 
 demo:
-	rm -rf $(STATE)/demo
+	mkdir -p $(STATE)/demo && find $(STATE)/demo -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf {} +
 	KHATA_IGNORE_SIDECARS=1 $(H) ingest $(SHOP)/week_01 --state-dir $(STATE)/demo
 	KHATA_IGNORE_SIDECARS=1 $(H) feedback $(SHOP)/feedback_after_week_01.json --state-dir $(STATE)/demo
 	KHATA_IGNORE_SIDECARS=1 $(H) ingest $(SHOP)/week_02 --state-dir $(STATE)/demo
-	KHATA_IGNORE_SIDECARS=1 $(H) report --as-of 2026-12-14 --mode autonomous --state-dir $(STATE)/demo -o report_demo.json
+	KHATA_IGNORE_SIDECARS=1 $(H) report --as-of 2026-12-14 --mode autonomous --state-dir $(STATE)/demo -o report_demo.json --html report_demo.html
 	$(PYTHON) grader/grader.py report_demo.json $(SHOP)/answers --data $(SHOP)/week_01 --data $(SHOP)/week_02 --verbose
+
+# make check DIR=path/to/whatsapp_export
+check:
+	$(H) check $(DIR) --state-dir $(STATE)/check-$(notdir $(DIR)) --out khata_report/$(notdir $(DIR))
 
 media:
 	$(PYTHON) scripts/render_data_media.py $(PRACTICE)/week_01 $(EXAM)
 	$(PYTHON) scripts/make_eval_shop.py
 
 clean:
-	rm -rf $(VENV) $(STATE) report_*.json
+	rm -rf $(VENV) $(STATE) report_*.json report_*.html khata_report
