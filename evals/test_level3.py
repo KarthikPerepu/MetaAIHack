@@ -26,7 +26,7 @@ def rathi_list(w, when, name, rate, eff, note="", caption=""):
 
 def cli(*args):
     """Run the harness in a fresh process, exactly as the grader does."""
-    return subprocess.run([sys.executable, str(ROOT / "harness" / "harness.py"), *args], capture_output=True,
+    return subprocess.run([sys.executable, str(ROOT / "harness" / "harness.py"), *args], capture_output=True, encoding="utf-8", errors="replace",
                           text=True, cwd=ROOT, env={**__import__("os").environ, "KHATA_OFFLINE": "1"})
 
 

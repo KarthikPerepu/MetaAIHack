@@ -22,8 +22,8 @@ SHOP = ROOT / "evals" / "scenarios" / "annapurna"
 
 
 def cli(*args, env=None):
-    e = {**os.environ, "KHATA_OFFLINE": "1", "KHATA_LOG": "ERROR", **(env or {})}
-    r = subprocess.run([sys.executable, str(ROOT / "harness" / "harness.py"), *map(str, args)], capture_output=True,
+    e = {**os.environ, "KHATA_OFFLINE": "1", "KHATA_LOG": "ERROR", "PYTHONIOENCODING": "utf-8", **(env or {})}
+    r = subprocess.run([sys.executable, str(ROOT / "harness" / "harness.py"), *map(str, args)], capture_output=True, encoding="utf-8", errors="replace",
                        text=True, cwd=ROOT, env=e)
     assert r.returncode == 0, r.stderr[-2000:]
     return json.loads(r.stdout) if r.stdout.strip() else {}
