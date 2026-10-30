@@ -6,6 +6,7 @@ lives under --state-dir.
     python harness/harness.py report   --as-of YYYY-MM-DD --mode supervised|autonomous --state-dir <dir> [-o out.json]
     python harness/harness.py feedback <feedback.json> --state-dir <dir>
     python harness/harness.py sheet    --as-of YYYY-MM-DD --state-dir <dir> [-o answer_sheet.json]
+    python harness/harness.py check    <week_dir> [--as-of YYYY-MM-DD] [--out folder]   (ingest + report + web page)
 
 JSON goes to stdout (or -o); logs go to stderr.
 """
@@ -73,6 +74,35 @@ def cmd_report(a) -> int:
     config, store, llama = _components(a.state_dir)
     rep = ReportGenerator(config, store, llama).generate(date.fromisoformat(a.as_of), a.mode)
     _emit(rep, a.output)
+    if getattr(a, "html", None):
+        _write_html(rep, a.html)
+    return 0
+
+
+def _write_html(rep: dict, path: str) -> None:
+    from harness.html_report import render
+    Path(path).write_text(render(rep), encoding="utf-8")
+    log.info(f"wrote {path} (open it in a browser)")
+
+
+def cmd_check(a) -> int:
+    """Read one WhatsApp export folder and write report.json + report.html in one go."""
+    from harness.ingest.pipeline import IngestPipeline
+    from harness.report import ReportGenerator
+    config, store, llama = _components(a.state_dir)
+    stats = IngestPipeline(config, store, llama).ingest(a.week_dir)
+    as_of = date.fromisoformat(a.as_of) if a.as_of else (
+        date.fromisoformat(stats["last_message_date"]) if stats.get("last_message_date") else date.today())
+    rep = ReportGenerator(config, store, llama).generate(as_of, a.mode)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    _emit(rep, str(out / "report.json"))
+    _write_html(rep, str(out / "report.html"))
+    s = rep["summary"]
+    print(f"Checked {stats.get('bills', 0)} bills up to {as_of}: {s['confirmed']} problems, "
+          f"{s['to_claim_back_inr']:,.0f} rupees to claim back, "
+          f"{s['conflicts'] + s['cannot_determine']} open questions, {len(rep['safety_alerts'])} messages blocked.")
+    print(f"Open {out / 'report.html'} in your browser.")
     return 0
 
 
@@ -107,7 +137,17 @@ def main(argv=None) -> int:
         s.add_argument("--mode", choices=["supervised", "autonomous"], default="supervised")
         s.add_argument("--state-dir", default="state")
         s.add_argument("-o", "--output", default=None)
+        if name == "report":
+            s.add_argument("--html", default=None, help="also write a web page version of the report")
         s.set_defaults(func=fn)
+
+    s = sub.add_parser("check", help="read one WhatsApp export folder and write report.json + report.html")
+    s.add_argument("week_dir")
+    s.add_argument("--as-of", default=None, help="default: date of the last message in the chat")
+    s.add_argument("--mode", choices=["supervised", "autonomous"], default="supervised")
+    s.add_argument("--state-dir", default="state/check")
+    s.add_argument("--out", default="khata_report", help="folder for report.json and report.html")
+    s.set_defaults(func=cmd_check)
 
     s = sub.add_parser("feedback", help="learn from the owner's answers")
     s.add_argument("feedback_file")

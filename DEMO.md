@@ -29,12 +29,12 @@ python harness\harness.py report --as-of 2026-12-07 --state-dir state\video -o w
 In `week1.json`, show the scheme claim from the voice note, the GST mistake, the `safety_alerts` entry
 where the forwarded "₹50,000 bhejo" message was blocked, and one of the Hinglish draft replies.
 
-**1:50, the next week changes things (50 sec).**
+**1:50, the next week changes things (40 sec).**
 
 ```powershell
 python harness\harness.py feedback evals\scenarios\annapurna\feedback_after_week_01.json --state-dir state\video
 python harness\harness.py ingest evals\scenarios\annapurna\week_02 --state-dir state\video
-python harness\harness.py report --as-of 2026-12-14 --mode autonomous --state-dir state\video -o week2.json
+python harness\harness.py report --as-of 2026-12-14 --mode autonomous --state-dir state\video -o week2.json --html week2.html
 ```
 
 In `week2.json`, show:
@@ -46,7 +46,11 @@ In `week2.json`, show:
 - the duplicate bill sent a week later with the old delivery date (read from a sideways photo)
 - in autonomous mode, only the small, fully proven claims being sent; the rest wait for the owner
 
-**2:40, wrap up (20 sec).**
+**2:30, the owner's view (15 sec).** Open `week2.html` in the browser: the
+total to claim back, the bars per distributor, the Hinglish summary written by Muse Spark, and press
+"Copy" on one of the WhatsApp drafts.
+
+**2:45, wrap up (15 sec).**
 
 ```powershell
 python grader\grader.py week2.json evals\scenarios\annapurna\answers --data evals\scenarios\annapurna\week_01 --data evals\scenarios\annapurna\week_02

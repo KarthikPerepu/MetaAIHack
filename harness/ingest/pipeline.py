@@ -138,6 +138,7 @@ class IngestPipeline:
         out = dict(sorted(self.stats.items()))
         out["distributors"] = [f"{c.code} ({c.name})" for c in self.store.all_cards()]
         out["owner"] = self.store.shop.get("owner_names", [])
+        out["last_message_date"] = messages[-1].timestamp.date().isoformat() if messages else None
         cfg = getattr(self.llama, "config", None)
         out["models"] = ({"vision": cfg.vision_model, "text": cfg.text_model,
                           "voice": cfg.voice_model if cfg.is_meta_model_api else f"whisper-{self.config.whisper_model} (local)",
