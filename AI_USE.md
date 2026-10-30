@@ -1,25 +1,29 @@
-# AI use
+# AI tools we used
 
-## Coding tools
+The problem statement asks us to list the AI coding tools we used, so here they are.
 
-| Tool | What it did |
-|---|---|
-| Google Gemini (Antigravity) | First version of the repository: package layout, initial detectors, a stand-in glossary, placeholder data with JSON "sidecars", initial tests, docs. |
-| Claude Code (Anthropic Claude Opus) | Audit of that version and the rewrite described in DESIGN.md §1: real media readers, generic distributor identification, as-of reasoning, detector and policy rewrite, feedback learning, the eval suite, the strict local grader, rendered test media, the two-week eval shop, and these docs. |
+**While building it**
 
-Every change was run against the eval suite; the commit history shows the Gemini baseline and each
-step after it.
+- **Google Gemini (Antigravity)** gave us the first version: the folder layout, the first attempt at
+  the six checks, a draft glossary, placeholder data and some tests.
+- **Claude Code (Anthropic)** helped us go through that version, find what didn't actually work, and
+  rebuild it: reading real photos, PDFs and voice notes, recognising distributors without
+  hard-coding names, the date logic, the checks, the safety rules, the tests, the grader, the test
+  shop and these docs.
 
-## Models used by the harness at runtime
+We ran the tests after every change, and the git history shows each step starting from the Gemini
+version.
 
-| Model | Use |
-|---|---|
-| Muse Spark 1.3 (vision), Meta Model API | Reading bill photos, UPI screenshots, statements and scanned rate lists |
-| Muse Spark 1.3 (text), Meta Model API | Hinglish / Devanagari message understanding, PDF interpretation fallback, second opinion on suspicious forwards, product-name mapping, free-text owner feedback |
-| Muse Voice Transcribe 1.0, Meta Model API | Speech-to-text for voice notes |
-| Whisper (open model, local, via faster-whisper) | Fallback speech-to-text when the Meta API is not configured |
-| Tesseract OCR (open source, local, optional) | Offline fallback for photos when no model key is set |
+**Inside Khata when it runs**
 
-Guard rails around the models: untrusted text is wrapped as data, every number a model returns must
-appear in the source, money is computed in Python, results are cached by file hash for reproducible
-reruns. Keys are read only from the environment or a git-ignored `.env` (`MODEL_API_KEY` / `LLAMA_API_KEY`, `MODEL_BASE_URL`).
+- **Muse Spark 1.3** (Meta Model API) reads bill photos, UPI screenshots, statements and scanned
+  rate lists.
+- **Muse Spark 1.3** also reads Hinglish and Devanagari messages, PDFs our parser can't handle, and
+  the owner's free-text answers, and double-checks suspicious forwarded messages.
+- **Muse Voice Transcribe 1.0** (Meta Model API) turns voice notes into text.
+- **Whisper** (open model, runs locally) is the backup for voice notes if the Meta API isn't set up.
+- **Tesseract OCR** (open source, optional) is the backup for photos when there's no API key.
+
+The models only read. All the money calculations are plain Python, any number a model gives back
+has to appear in the original document, and the API key only ever comes from the `.env` file or the
+environment, never from the code.
