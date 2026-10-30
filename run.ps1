@@ -4,7 +4,7 @@ param([Parameter(Position = 0)][ValidateSet("setup", "grade", "sheet", "eval", "
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"
 $py = if (Test-Path ".venv\Scripts\python.exe") { ".venv\Scripts\python.exe" } else { "python" }
-function H { & $py harness\harness.py @args; if ($LASTEXITCODE -ne 0) { throw "harness failed: $args" } }
+function Invoke-Khata { & $py harness\harness.py @args; if ($LASTEXITCODE -ne 0) { throw "harness failed: $args" } }
 $shop = "evals\scenarios\annapurna"
 
 switch ($Target) {
@@ -17,19 +17,19 @@ switch ($Target) {
   "grade" {
     if (Test-Path state\practice) { Remove-Item -Recurse -Force state\practice }
     Get-ChildItem data\practice -Directory -Filter "week_*" | Sort-Object Name | ForEach-Object {
-      H ingest $_.FullName --state-dir state\practice | Out-Null
+      Invoke-Khata ingest $_.FullName --state-dir state\practice | Out-Null
       if ($_.Name -eq "week_01" -and (Test-Path data\practice\feedback\feedback.json)) {
-        H feedback data\practice\feedback\feedback.json --state-dir state\practice | Out-Null
+        Invoke-Khata feedback data\practice\feedback\feedback.json --state-dir state\practice | Out-Null
       }
     }
-    H report --as-of 2026-10-15 --mode supervised --state-dir state\practice -o report_practice.json
+    Invoke-Khata report --as-of 2026-10-15 --mode supervised --state-dir state\practice -o report_practice.json
     & $py grader\grader.py report_practice.json data\practice\answers --data data\practice --verbose
   }
   "sheet" {
     if (Test-Path state\exam) { Remove-Item -Recurse -Force state\exam }
-    H ingest data\exam --state-dir state\exam | Out-Null
-    H sheet --as-of 2026-10-20 --mode supervised --state-dir state\exam -o answer_sheet.json
-    H report --as-of 2026-10-20 --mode supervised --state-dir state\exam -o report_exam.json
+    Invoke-Khata ingest data\exam --state-dir state\exam | Out-Null
+    Invoke-Khata sheet --as-of 2026-10-20 --mode supervised --state-dir state\exam -o answer_sheet.json
+    Invoke-Khata report --as-of 2026-10-20 --mode supervised --state-dir state\exam -o report_exam.json
     Write-Host "answer_sheet.json written (full report: report_exam.json)"
   }
   "eval" {
@@ -38,19 +38,19 @@ switch ($Target) {
   }
   "eval-shop" {
     if (Test-Path state\annapurna) { Remove-Item -Recurse -Force state\annapurna }
-    H ingest "$shop\week_01" --state-dir state\annapurna | Out-Null
-    H feedback "$shop\feedback_after_week_01.json" --state-dir state\annapurna | Out-Null
-    H ingest "$shop\week_02" --state-dir state\annapurna | Out-Null
-    H report --as-of 2026-12-14 --state-dir state\annapurna -o report_annapurna.json
+    Invoke-Khata ingest "$shop\week_01" --state-dir state\annapurna | Out-Null
+    Invoke-Khata feedback "$shop\feedback_after_week_01.json" --state-dir state\annapurna | Out-Null
+    Invoke-Khata ingest "$shop\week_02" --state-dir state\annapurna | Out-Null
+    Invoke-Khata report --as-of 2026-12-14 --state-dir state\annapurna -o report_annapurna.json
     & $py grader\grader.py report_annapurna.json "$shop\answers" --data "$shop\week_01" --data "$shop\week_02" --verbose
   }
   "demo" {
     $env:KHATA_IGNORE_SIDECARS = "1"
     if (Test-Path state\demo) { Remove-Item -Recurse -Force state\demo }
-    H ingest "$shop\week_01" --state-dir state\demo
-    H feedback "$shop\feedback_after_week_01.json" --state-dir state\demo
-    H ingest "$shop\week_02" --state-dir state\demo
-    H report --as-of 2026-12-14 --mode autonomous --state-dir state\demo -o report_demo.json
+    Invoke-Khata ingest "$shop\week_01" --state-dir state\demo
+    Invoke-Khata feedback "$shop\feedback_after_week_01.json" --state-dir state\demo
+    Invoke-Khata ingest "$shop\week_02" --state-dir state\demo
+    Invoke-Khata report --as-of 2026-12-14 --mode autonomous --state-dir state\demo -o report_demo.json
     & $py grader\grader.py report_demo.json "$shop\answers" --data "$shop\week_01" --data "$shop\week_02" --verbose
     Remove-Item Env:\KHATA_IGNORE_SIDECARS
   }
