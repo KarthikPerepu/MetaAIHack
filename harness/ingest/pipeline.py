@@ -92,7 +92,11 @@ class IngestPipeline:
 
         self._load_contracts(week)
 
-        # Phase A: read every attachment referenced in chat
+        # Phase A: read every attachment referenced in chat. Product names seen so far (earlier weeks,
+        # rate lists and bills in this week) are passed to speech-to-text as hints.
+        vocab: list[str] = []
+        for card in self.store.all_cards():
+            vocab += self._products(card)
         docs: dict[int, list[tuple[str, Path, DocResult]]] = defaultdict(list)
         referenced: set[Path] = set()
         for m in messages:
@@ -104,7 +108,11 @@ class IngestPipeline:
                     continue
                 referenced.add(p.resolve())
                 kind = media_kind(p.name)
-                res = self.reader.read(p, kind, hint=getattr(m, "_context", m.body), ref_year=self.ref_year)
+                res = self.reader.read(p, kind, hint=getattr(m, "_context", m.body), ref_year=self.ref_year,
+                                       keywords=_voice_keywords(vocab) if kind == "audio" else None)
+                d = res.data or {}
+                vocab += [e.get("product", "") for e in d.get("entries", []) if isinstance(e, dict)]
+                vocab += [l.get("product", "") for l in d.get("lines", []) if isinstance(l, dict) and not l.get("is_free")]
                 docs[id(m)].append((att, p, res))
                 self.stats[f"read_{res.doc_type}"] += 1
                 if not res.readable:
@@ -750,6 +758,26 @@ class IngestPipeline:
             for s in card.schemes:
                 if s.product is None and s.raw_text:
                     s.product = self._match_known_product(card, s.raw_text)
+
+
+def _voice_keywords(products: list[str]) -> list[str]:
+    """Trade words plus product and brand names, so the transcriber hears "Dhara" rather than "dara"."""
+    from harness.ingest.media import TRADE_KEYWORDS
+    words = list(TRADE_KEYWORDS)
+    for p in products:
+        p = (p or "").strip()
+        if not p:
+            continue
+        words.append(p)
+        brand = p.split()[0]
+        if len(brand) > 2 and not brand[0].isdigit():
+            words.append(brand)
+    seen, out = set(), []
+    for w in words:
+        if w.lower() not in seen:
+            seen.add(w.lower())
+            out.append(w)
+    return out[:50]
 
 
 def _chat_title(path: Path) -> str:

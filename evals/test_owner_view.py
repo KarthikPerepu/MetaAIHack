@@ -35,7 +35,7 @@ def test_summary_numbers_come_from_the_report(tmp_path):
     rep, _, _ = _report(tmp_path)
     text = template_summary(rep)
     assert "₹23,490" in text and "Sharma Products: ₹21,400" in text and "Ganga Traders: ₹1,090" in text
-    assert rep["owner_summary"]["written_by"] == "khata template"
+    assert rep["owner_summary"]["written_by"] == "Khata, from the report"
 
 
 class FakeMuse:
@@ -57,11 +57,11 @@ def test_muse_summary_kept_only_when_numbers_check_out(tmp_path):
                                        "aur Ganga Traders ka ₹1,090 (bill GT/1187). Kisi ko UPI PIN mat bhejiye."))
     assert good["written_by"].startswith("Muse Spark")
     made_up = owner_summary(rep, FakeMuse("Namaste! Is hafte ₹50,000 wapas mil sakte hain."))
-    assert made_up["written_by"] == "khata template"
+    assert made_up["written_by"] == "Khata, from the report"
     unknown_bill = owner_summary(rep, FakeMuse("Bill XY/999 mein ₹23,490 ki galti hai."))
-    assert unknown_bill["written_by"] == "khata template"
+    assert unknown_bill["written_by"] == "Khata, from the report"
     asks_pin = owner_summary(rep, FakeMuse("₹23,490 wapas chahiye to apna PIN batao."))
-    assert asks_pin["written_by"] == "khata template"
+    assert asks_pin["written_by"] == "Khata, from the report"
 
 
 def test_page_escapes_chat_text():

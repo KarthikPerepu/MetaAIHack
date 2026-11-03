@@ -96,7 +96,8 @@ class DocumentReader:
             json.dumps(res.__dict__, default=default, ensure_ascii=False), encoding="utf-8")
 
     # ── entry point ──────────────────────────────────────────
-    def read(self, path: Path, kind: str, hint: str = "", ref_year: Optional[int] = None) -> DocResult:
+    def read(self, path: Path, kind: str, hint: str = "", ref_year: Optional[int] = None,
+             keywords: Optional[list[str]] = None) -> DocResult:
         fh = file_hash(path)
         if not self.ignore_sidecars:
             res = self._from_sidecar(path, kind, ref_year)
@@ -104,6 +105,8 @@ class DocumentReader:
                 res.file_hash = fh
                 return res
         key = f"{fh[:32]}-{EXTRACTOR_VERSION}-{'llm' if self.llama.available else 'local'}"
+        if kind == "audio":
+            key += "-kw"   # transcripts now use product-name hints; don't reuse older ones
         cached = self._cache_load(key)
         if cached:
             return self._revive(cached, ref_year)
@@ -112,7 +115,7 @@ class DocumentReader:
         elif kind == "pdf":
             res = self._read_pdf(path, hint, ref_year)
         elif kind == "audio":
-            res = self._read_audio(path)
+            res = self._read_audio(path, keywords)
         else:
             res = DocResult("other", readable=False, note="unsupported file type")
         res.file_hash = fh
@@ -235,8 +238,8 @@ class DocumentReader:
         return DocResult(doc_type, data, method="llama_text", confidence=0.85, text=text)
 
     # ── audio ────────────────────────────────────────────────
-    def _read_audio(self, path: Path) -> DocResult:
-        res = media.transcribe(path, self.whisper_model, cfg=getattr(self.llama, "config", None))
+    def _read_audio(self, path: Path, keywords: Optional[list[str]] = None) -> DocResult:
+        res = media.transcribe(path, self.whisper_model, cfg=getattr(self.llama, "config", None), keywords=keywords)
         if not res["text"]:
             return DocResult("transcript", {"text": ""}, method=res["method"], confidence=0.0, readable=False,
                              note="speech-to-text unavailable or silent audio")

@@ -4,6 +4,8 @@ Find the money leaking out of a kirana shop's WhatsApp.
 
 Our entry for the Meta Global AI Developer Hackathon 2026 ("Build for Your World").
 
+![The report page Khata writes for the shop owner](docs/report-page.png)
+
 ## The idea
 
 A small kirana shop pays dozens of distributor bills a month, and almost all of it happens on

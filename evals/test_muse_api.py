@@ -99,3 +99,30 @@ def test_muse_spark_params_and_graceful_fallbacks():
     assert c.chat_json("x") == {"ok": True}
     assert calls[0]["model"] == "muse-spark-1.3" and calls[0]["reasoning_effort"] == "low"
     assert "max_completion_tokens" in calls[0] and "reasoning_effort" not in calls[1]
+
+
+def test_voice_notes_get_product_names_as_hints(tmp_path, monkeypatch):
+    """A rate list read earlier in the week gives the transcriber its product names."""
+    from evals.fixtures.scenario import Week
+    from harness.config import HarnessConfig
+    from harness.ingest import media as media_mod
+    from harness.ingest.pipeline import IngestPipeline
+    from harness.knowledge.store import KnowledgeStore
+
+    seen = {}
+
+    def fake_transcribe(path, model_size="small", cfg=None, keywords=None):
+        seen["keywords"] = keywords
+        return {"text": "50 peti Dhara lo to 5 peti free", "confidence": 0.9, "language": "", "method": "fake"}
+
+    monkeypatch.setattr(media_mod, "transcribe", fake_transcribe)
+    w = Week(tmp_path / "w", shop="Annapurna Kirana Store")
+    w.rate_list("2026-12-01 09:00", "Mohan Rathi Kirana Supply", "rl.pdf", "Rathi Kirana Supply",
+                [{"product": "Dhara Mustard Oil 1L", "rate": 150, "hsn": "1514", "unit": "box"}], effective="2026-12-01")
+    w.voice("2026-12-03 16:20", "Mohan Rathi Kirana Supply", "PTT-1.opus", "")
+    (w.path / "PTT-1.opus.txt").unlink()          # force real speech-to-text
+    w.write()
+    cfg = HarnessConfig(state_dir=str(tmp_path / "s"))
+    IngestPipeline(cfg, KnowledgeStore(cfg.state_dir)).ingest(str(w.path))
+    assert "Dhara" in seen["keywords"] and "Dhara Mustard Oil 1L" in seen["keywords"]
+    assert "peti" in seen["keywords"]

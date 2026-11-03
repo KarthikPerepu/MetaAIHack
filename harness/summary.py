@@ -85,7 +85,7 @@ def _allowed_numbers(report: dict, facts: dict, base: str) -> set[float]:
 
 def owner_summary(report: dict, llama=None) -> dict:
     base = template_summary(report)
-    out = {"text": base, "written_by": "khata template"}
+    out = {"text": base, "written_by": "Khata, from the report"}
     if llama is None or not getattr(llama, "available", False):
         return out
     facts = _facts(report)
