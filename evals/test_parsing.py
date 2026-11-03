@@ -1,5 +1,7 @@
-"""Unit checks for the deterministic layers: chat formats, numbers and dates, Hinglish /
-Devanagari message understanding, text parsers and the injection screen."""
+"""
+Small tests for the parts that don't use a model: chat formats, numbers and dates, reading
+Hinglish and Hindi messages, the PDF/OCR text parsers, and the scam filter.
+"""
 
 from datetime import date, datetime
 

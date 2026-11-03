@@ -1,10 +1,9 @@
 """
-Deterministic parsers for document *text* (PDF text layers and OCR output).
+Our own parsers for document text (PDF text and OCR output). No model needed.
 
-They do not depend on one layout: a bill row is any line holding three
-numbers with qty x rate = amount; a rate-list row is mapped through the
-header's column order; totals are found by their labels in English, Hinglish
-or Hindi. Used for PDFs (main path) and as the offline fallback for photos.
+They don't assume one layout: a bill row is any line with three numbers where quantity × rate =
+amount, a rate-list row is read using the column order from its header, and totals are found by
+their labels in English, Hinglish or Hindi. Used for PDFs, and as the offline backup for photos.
 """
 
 from __future__ import annotations

@@ -90,7 +90,9 @@ are named like `IMG-20261009-WA0012.jpg`.
   rows by finding three numbers on a line where quantity × rate = amount.
 - PDFs are read with pdfplumber (tables first, then text), with Muse Spark as a backup, and scanned
   PDFs get turned into images.
-- Voice notes go to Muse Voice Transcribe, with local Whisper as a backup.
+- Voice notes go to Muse Voice Transcribe, with local Whisper as a backup. We pass it the product
+  names we've seen so far (from earlier weeks and this week's rate lists and bills) so it hears
+  "Dhara" or "Fortune Atta" correctly.
 - When OCR misreads a bill number (GT/1187 as G1/1187), we fix it using the chat message the photo
   came with. Messy item names get matched to products the distributor already sells.
 
@@ -233,7 +235,7 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
 
 ## Testing
 
-`make eval` (or `.\run.ps1 eval`) runs 93 tests and then replays our own test shop:
+`make eval` (or `.\run.ps1 eval`) runs 94 tests and then replays our own test shop:
 
 - `test_detectors.py`: each problem type with its look-alikes. For example a bill just before a new
   rate list (fine) vs just after (wrong), a re-order vs a duplicate, one-time vs permanent schemes, a
@@ -263,9 +265,9 @@ missed. A real recording fixes it.
 
 ## Limits and what we'd do next
 
-- **Voice notes are the weak spot.** Mumbled Hinglish numbers are hard for any transcriber. Next we'd
-  pass the distributor's product names as transcription hints and let Muse Spark fix the transcript
-  against what that distributor actually sells.
+- **Voice notes are the weak spot.** Mumbled Hinglish numbers are hard for any transcriber. We already
+  give Muse Voice Transcribe the distributor's product names as hints. Next we'd let Muse Spark check
+  the transcript against what that distributor actually sells and ask the owner when a number is unclear.
 - **The reference files may not be the official ones.** The glossary, data and grader we started
   with came from Gemini, not the organisers. GST rates are in `harness/data/gst_rates.json` and the
   limits in `harness/config.py`, so the official numbers can be dropped in without touching code. The

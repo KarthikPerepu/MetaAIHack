@@ -1,10 +1,10 @@
 """
-Shared helpers for the six detectors.
+Helpers shared by the six checks.
 
-Confidence is "the probability that both the verdict and the amount are
-right". It is built from the reliability of each fact the finding depends on
-(bill read quality, source authority, product match, whether the rate in
-force is certain, corroboration) so that shakier findings score lower.
+Confidence is our guess at how likely it is that both the verdict and the amount are right. It
+starts high and drops a little for each shaky thing the finding depends on (a blurry bill, a less
+trusted source, a loose product-name match, an effective date we had to guess ...), so weaker
+findings end up with lower scores.
 """
 
 from __future__ import annotations

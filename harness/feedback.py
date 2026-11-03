@@ -1,24 +1,23 @@
 """
-Learning from the owner's answers (``harness.py feedback <file> --state-dir``).
+Learns from the owner's answers (`harness.py feedback <file> --state-dir <dir>`).
 
-Accepts a JSON list (or {"feedback": [...]}) of items such as
+The file is a JSON list (or {"feedback": [...]}) of things like:
 
     {"bill_id": "GT/1187", "class": "rate_mismatch", "feedback": "agreed"}
     {"bill_id": "GT/1179", "class": "rate_mismatch", "feedback": "wrong", "comment": "410 was agreed"}
     {"bill_id": "GT/1187", "class": "rate_mismatch", "resolution": "ratelist_v2.pdf"}      # settle a conflict
-    {"bill_id": "BW/3011", "class": "rate_mismatch", "provided": {"rate": 300}}            # answer cannot_determine
+    {"bill_id": "BW/3011", "class": "rate_mismatch", "provided": {"rate": 300}}            # answer a question
     {"distributor": "SP", "credit_days": 45, "interest_rate": 0.15}
     {"bill_id": "KP/8801", "status": "paid", "method": "cash"}
     {"distributor": "GT", "salesman": "Suresh", "can_offer_schemes": false}
     {"distributor": "BW", "product": "Amul Condensed Milk", "hsn": "0402", "gst_rate": 5}
     {"bill_id": "SP/4412", "class": "duplicate_bill", "feedback": "not a duplicate, two deliveries"}
-    {"comment": "Sharma Products ka credit 45 din ka hai"}                                   # free text
+    {"comment": "Sharma Products ka credit 45 din ka hai"}                                   # plain text
 
-Each item becomes a normalised decision in <state>/feedback.json that every
-later report applies: rejected findings stay suppressed, confirmed ones get
-high confidence, answered questions unblock the check, conflict choices are
-remembered, and rates the owner says were agreed apply to later bills too.
-Free text is parsed by rules and, when available, by the Meta text model (Muse Spark).
+Each answer is saved in <state>/feedback.json and every later report uses it: findings the owner
+rejected stay hidden, confirmed ones get high confidence, answered questions let the check run, a
+chosen side settles a conflict, and a rate the owner says was agreed applies to later bills too.
+Plain-text answers go through our own rules first, then Muse Spark if available.
 """
 
 from __future__ import annotations
@@ -97,7 +96,7 @@ class FeedbackLearner:
         self.store.save()
         return stats
 
-    # ── interpretation ───────────────────────────────────────
+    # Interpretation
     def _dist(self, item: dict) -> Optional[str]:
         raw = item.get("distributor") or item.get("distributor_code") or item.get("supplier")
         if raw:
@@ -265,7 +264,7 @@ class FeedbackLearner:
             out.append(d)
         return out
 
-    # ── helpers ──────────────────────────────────────────────
+    # Helpers
     def _bill(self, dist, bill_id):
         card = self.store.card(dist) if dist else None
         return next((b for b in card.bills if b.bill_id == bill_id), None) if card and bill_id else None

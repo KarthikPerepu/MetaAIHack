@@ -1,23 +1,20 @@
 """
-Scheme not given: a free-goods or discount scheme agreed in chat / a voice
-note / the rate list is missing on the bill.
+Scheme not given: a free-goods or discount scheme agreed in chat, a voice note or the rate list
+that's missing from the bill.
 
-amount = missing free units x rate in force on the bill date (free goods),
-         or the missing discount (percentage or per-unit).
+Amount = missing free units × the rate valid on the bill date, or the missing discount.
 
-* A scheme is ONE-TIME unless the words say it repeats. A one-time scheme is
-  used up by the first qualifying bill dated on/after the agreement, whether or
-  not the free goods were given, so a later bill is never claimed again
-  (treating one-time as permanent is a capping mistake).
-* "X pe Y free" scales with the quantity (20 bought on "10 pe 1" = 2 free);
-  "X lo, Y free milega" gives Y once.
-* Free goods shown on the bill (a free row, a free-qty column, or a price that
-  already absorbs the free units) count as given.
-* Two trusted sources that disagree about the scheme (rate list vs salesman,
-  or two different people) are a conflict. A later message from the same
-  person replaces the earlier offer.
-* Only the distributor's named people (or the rate list, or the owner) can
-  create a scheme. Forwarded or unknown senders cannot.
+- A scheme only applies once unless the words say otherwise. A one-time scheme is used up by the
+  first bill that qualifies after it was offered, whether or not the free goods were given, so we
+  never claim it again on the next order. (Treating a one-time scheme as permanent is one of the
+  big mistakes.)
+- "10 pe 1 free" scales with quantity (20 bought means 2 free). "20 lo, 2 free milega" means 2, once.
+- Free goods already on the bill count as given: a free row, a free-quantity column, or a price
+  that already includes them.
+- If two trusted sources disagree about the scheme (the rate list and a salesman, or two people),
+  it's a conflict. A newer offer from the same person replaces their older one.
+- Only the distributor's own people, the rate list or the owner can create a scheme. Forwarded
+  messages and unknown numbers can't.
 """
 
 from __future__ import annotations

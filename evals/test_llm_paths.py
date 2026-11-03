@@ -1,8 +1,9 @@
-"""The Llama paths, exercised with a scripted fake model (no network in the test suite).
+"""
+The model-related code, tested with a scripted fake model so no API calls are made.
 
-Checks the guard rails around the model rather than the model itself: rotation retry,
-rejection of invented numbers, no "permanent" without the words, instructions on a
-document are reported and ignored, model-flagged forwards are quarantined.
+We're checking our own safety nets around the model: retrying a sideways photo, throwing away
+numbers the model made up, never calling a scheme permanent without the words for it, ignoring
+instructions printed on a bill, and blocking a forward the model flags.
 """
 
 from datetime import date

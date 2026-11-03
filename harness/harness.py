@@ -1,14 +1,13 @@
 """
-Khata harness CLI. Each command runs in a fresh process; everything learnt
-lives under --state-dir.
+The Khata command line. Each command runs on its own; everything it learns is kept in --state-dir.
 
     python harness/harness.py ingest   <week_dir>      --state-dir <dir>
-    python harness/harness.py report   --as-of YYYY-MM-DD --mode supervised|autonomous --state-dir <dir> [-o out.json]
+    python harness/harness.py report   --as-of YYYY-MM-DD --mode supervised|autonomous --state-dir <dir> [-o out.json] [--html out.html]
     python harness/harness.py feedback <feedback.json> --state-dir <dir>
     python harness/harness.py sheet    --as-of YYYY-MM-DD --state-dir <dir> [-o answer_sheet.json]
     python harness/harness.py check    <week_dir> [--as-of YYYY-MM-DD] [--out folder]   (ingest + report + web page)
 
-JSON goes to stdout (or -o); logs go to stderr.
+JSON goes to the screen (or to -o); log messages go to stderr.
 """
 
 from __future__ import annotations
@@ -47,8 +46,8 @@ def _components(state_dir: str):
     store = KnowledgeStore(state_dir)
     llama = LlamaClient(config.llama, cache_dir=store.cache_dir)
     if not llama.available:
-        log.warning("No model key (MODEL_API_KEY / LLAMA_API_KEY) or KHATA_OFFLINE=1: photos are read by local OCR / sidecars only, "
-                    "and messages by the deterministic parser.")
+        log.warning("No API key found (put MODEL_API_KEY in .env), or KHATA_OFFLINE=1 is set. Running without "
+                    "Muse: photos are read with Tesseract or the saved .json readings, messages with our own rules.")
     return config, store, llama
 
 

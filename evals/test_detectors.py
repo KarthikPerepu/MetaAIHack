@@ -1,7 +1,9 @@
-"""Each of the six classes: a real case, the look-alikes that must stay clean, and the edge rules.
+"""
+One group of tests per problem type: a real case, the look-alikes that should be left alone,
+and the edge cases.
 
-Every test builds a WhatsApp week from scratch (new shop and distributor names,
-different wordings from the practice data) and runs the real CLI commands.
+Each test builds its own WhatsApp week with new shop and distributor names and new wordings, then
+runs the actual commands.
 """
 
 from evals.fixtures.scenario import Week, feedback, ingest, pick, report
@@ -18,7 +20,7 @@ def ashoka_rates(w, when="2026-11-01 09:00", eff="2026-11-01", rate=100.0, name=
                        effective=eff, version=version)
 
 
-# ── rate mismatch ───────────────────────────────────────────
+# Rate mismatch
 def test_rate_mismatch_uses_rate_in_force_on_bill_date(tmp_path, state):
     w = Week(tmp_path / "w1", shop=SHOP)
     w.msg("2026-11-01 08:59", AT, "Namaste Gupta Kirana Bhandar ji, rate list bhej raha hoon")
@@ -78,7 +80,7 @@ def test_salesman_quote_vs_signed_list_is_a_conflict(tmp_path, state):
     assert c[0]["action"]["supervised"] == "escalate_to_owner"
 
 
-# ── duplicate bill ──────────────────────────────────────────
+# Duplicate bill
 def _dup_week(tmp_path, second_date, second_delivery, items2=None, second_id="AT/512"):
     w = Week(tmp_path / "w1", shop=SHOP)
     ashoka_rates(w)
@@ -119,7 +121,7 @@ def test_same_total_different_items_is_not_duplicate(tmp_path, state):
     assert not pick(report(state, "2026-11-08"), "duplicate_bill")
 
 
-# ── scheme not given ────────────────────────────────────────
+# Scheme not given
 def _scheme_week(tmp_path, offer, bills, voice=False):
     w = Week(tmp_path / "w1", shop=SHOP)
     ashoka_rates(w)
@@ -209,7 +211,7 @@ def test_percentage_discount_scheme(tmp_path, state):
     assert [(f["bill_id"], f["amount_inr"]) for f in s] == [("AT/901", 60.0)]
 
 
-# ── paid but shown due ──────────────────────────────────────
+# Paid but shown due
 def _paid_week(tmp_path, pay_date, stmt_date, rows=None, ref_in_text=True):
     w = Week(tmp_path / "w1", shop=SHOP)
     w.msg("2026-11-01 10:00", MP, "Sir bill MP/40 ka 6500 baki hai")
@@ -258,7 +260,7 @@ def test_owner_says_paid_without_screenshot_is_cannot_determine(tmp_path, state)
     assert len(f) == 1 and f[0]["ask"].startswith("owner")
 
 
-# ── GST ─────────────────────────────────────────────────────
+# GST
 def test_gst_wrong_slab_and_wrong_base(tmp_path, state):
     w = Week(tmp_path / "w1", shop=SHOP)
     ashoka_rates(w)
@@ -286,7 +288,7 @@ def test_gst_unknown_hsn_is_cannot_determine_but_untaxed_bill_is_silent(tmp_path
     assert not pick(rep, "gst_error", bill="MP/62")
 
 
-# ── credit period ───────────────────────────────────────────
+# Credit period
 def test_credit_period_window_terms_and_payment(tmp_path, state):
     w = Week(tmp_path / "w1", shop=SHOP)
     ashoka_rates(w, when="2026-09-20 09:00", eff="2026-09-20")

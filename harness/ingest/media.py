@@ -1,10 +1,10 @@
 """
-Local readers that need no model API:
+Readers that work on this machine without an API:
 
-* PDF text + tables (pdfplumber, then pypdf), page rendering for scanned PDFs
-* tesseract OCR with automatic orientation detection (offline fallback for photos)
-* speech-to-text for voice notes with an open Whisper model
-  (faster-whisper first, openai-whisper second)
+- PDF text and tables (pdfplumber, then pypdf), and turning scanned PDF pages into images
+- Tesseract OCR, which also spots and fixes the photo's rotation (the offline backup for photos)
+- voice notes: Muse Voice Transcribe on the Meta Model API if configured, otherwise an open
+  Whisper model run locally (faster-whisper, then openai-whisper)
 """
 
 from __future__ import annotations
@@ -23,9 +23,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────
 # PDF
-# ─────────────────────────────────────────────────────────────
 def pdf_text_and_tables(path: str | Path) -> tuple[str, list]:
     text_parts, tables = [], []
     try:
@@ -71,9 +69,7 @@ def render_pdf_pages(path: str | Path, max_pages: int = 3) -> list[Path]:
     return out
 
 
-# ─────────────────────────────────────────────────────────────
 # OCR
-# ─────────────────────────────────────────────────────────────
 @lru_cache(maxsize=1)
 def tesseract_langs() -> tuple[str, ...]:
     if not shutil.which("tesseract"):
@@ -133,9 +129,7 @@ def ocr_image(path: str | Path, rotate: Optional[int] = None) -> tuple[str, floa
         return "", 0.0, 0
 
 
-# ─────────────────────────────────────────────────────────────
 # Speech to text
-# ─────────────────────────────────────────────────────────────
 HINGLISH_PROMPT = ("Bhaiya, carton, bag, free, scheme, rate, bill, delivery, payment, discount. "
                    "20 carton lo, 2 carton free milega. Rate 395 hai.")
 

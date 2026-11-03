@@ -1,17 +1,13 @@
 """
-Message understanding agent (chat lines and voice-note transcripts).
+Reads one chat message or voice-note transcript (Hinglish, Hindi or English) and pulls out the
+facts we care about: schemes, rates someone quoted, credit terms, "payment kar diya", deliveries.
 
-Turns one Hinglish / Devanagari / English message into structured facts:
-schemes, spoken rate quotes, credit terms, payment claims, deliveries.
+Our own rules always run, and work offline. If there's an API key, Muse Spark reads the message too
+and catches wordings the rules miss.
 
-Two layers:
-1. deterministic parser (always runs, offline);
-2. the Meta text model, Muse Spark (when available), for wordings the rules miss.
-
-Model output is accepted only if every number it reports appears in the
-message (no invented quantities), and a scheme is only ever "permanent" when
-the message itself contains a recurrence phrase. Treating a one-time scheme
-as permanent is a capping mistake, so the default is always one_time.
+We only keep what Muse says if every number it gives is actually in the message, and it can only
+call a scheme permanent if the message says so ("hamesha", "har order" ...). Calling a one-time
+scheme permanent is one of the big mistakes, so one-time is always the default.
 """
 
 from __future__ import annotations

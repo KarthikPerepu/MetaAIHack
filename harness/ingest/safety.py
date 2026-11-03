@@ -1,15 +1,12 @@
 """
-Prompt-injection and fraud screening.
+Spotting scam messages and instructions hidden in chats, bills and voice notes.
 
-The harness never pays, never shares the owner's UPI PIN or bank details and
-never takes orders from content. That is enforced structurally (there is no
-payment action anywhere in the code). This module additionally *quarantines*
-content that tries to give orders, so it cannot become a "fact" either
-(e.g. "ignore previous bills" must not delete bills, a forwarded "new rate"
-must not change a rate).
+Khata can't pay anyone or share a PIN no matter what: there's simply no code for that. This module
+also sets aside anything that tries to give orders, so it can't sneak in as a "fact" either (an
+"ignore previous bills" message mustn't delete bills; a forwarded "new rate" mustn't change a rate).
 
-Rules are tuned to avoid blocking normal trade talk ("bill SP/4380 ka 5000 due
-hai", "UPI kar diya", "account statement bhej raha hoon").
+The rules are tuned so normal trade talk ("bill SP/4380 ka 5000 due hai", "UPI kar diya",
+"account statement bhej raha hoon") isn't blocked.
 """
 
 from __future__ import annotations

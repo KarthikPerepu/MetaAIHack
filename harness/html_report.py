@@ -1,7 +1,8 @@
 """
-Turn report.json into one self-contained web page the owner (or a judge) can open in any browser.
+Turns report.json into a single web page the owner can open in any browser.
 
-No internet needed: CSS and the little bit of JavaScript (copy buttons, filter) are inline.
+Everything (styles and the bit of JavaScript for the copy buttons and filters) is inside the file,
+so it works without internet.
 """
 
 from __future__ import annotations

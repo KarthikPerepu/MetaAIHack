@@ -1,16 +1,14 @@
 """
-Credit-period risk: an unpaid bill whose credit period ends in the next 7 days.
+Credit-period risk: an unpaid bill whose credit period runs out in the next 7 days.
 
-* due date = bill date + credit days; flagged when due is in [as_of, as_of + 7].
-* Credit terms: owner feedback > contract card > chat ("45 din ka credit")
-  > glossary default (30 days, 18% p.a.).
-* Paid (UPI reference / unique amount match / statement / owner) bills are
-  not at risk; part-paid bills are at risk for the balance.
-* Bills known only from a statement line also count.
-* amount = outstanding x (annual rate / 365) x overdue days, where overdue
-  days run from the due date to the end of the 7-day look-ahead (at least 1):
-  the interest the owner avoids by paying inside the window.
-* Action: an internal reminder to the owner, never a message to the distributor.
+- Due date = bill date + credit days. We flag it if that falls between the report date and 7 days later.
+- Credit terms come from, in order: the owner's feedback, a contract card, what the distributor said
+  in chat ("45 din ka credit"), or the default of 30 days at 18% a year.
+- Bills that are paid don't count. Part-paid bills count for what's still owed.
+- Bills we only know about from a statement count too.
+- Amount = what's owed × yearly rate / 365 × days from the due date to the end of that 7-day window
+  (at least one day), i.e. the interest the owner saves by paying on time.
+- This is only ever a reminder to the owner, never a message to the distributor.
 """
 
 from __future__ import annotations

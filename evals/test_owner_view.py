@@ -1,4 +1,4 @@
-"""The owner-facing outputs: the Hinglish summary, the web page and the one-shot `check` command."""
+"""Tests for what the owner sees: the Hinglish summary, the web page and the `check` command."""
 
 import json
 import subprocess

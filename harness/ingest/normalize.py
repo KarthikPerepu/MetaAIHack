@@ -1,6 +1,6 @@
 """
-One normal form for extracted documents, whatever produced them
-(Muse Spark vision, PDF tables, OCR text, or a sidecar JSON).
+Puts every document reading into the same shape, whether it came from Muse Spark, a PDF table,
+OCR text or a saved .json file.
 
     bill       {bill_id, distributor_name, bill_date, delivery_date, challan_no, lines[...],
                 subtotal, discount_total, tax_total, tax_rate, grand_total, confidence}
@@ -8,9 +8,8 @@ One normal form for extracted documents, whatever produced them
     statement  {distributor_name, statement_date, entries[...], total_outstanding, confidence}
     rate_list  {distributor_name, version, effective_from, effective_to, is_revision, entries[...]}
 
-Also validates bill arithmetic (qty x rate = amount, lines add up to the
-subtotal, subtotal - discount + tax = total). The share of checks that pass
-becomes the OCR-quality signal used in confidence.
+It also checks a bill's sums (quantity × rate = amount, rows add up to the subtotal, subtotal -
+discount + tax = total). How many of those checks pass tells us how much to trust the reading.
 """
 
 from __future__ import annotations

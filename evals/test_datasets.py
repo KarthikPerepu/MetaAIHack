@@ -1,8 +1,9 @@
-"""Replay the practice set, the exam set and our own two-week eval shop through the CLI (fresh
-process per command, like the judges) and grade them with grader/grader.py.
+"""
+Runs the practice set, the exam set and our two-week test shop through the command line,
+one process per command like the judges do, and grades them.
 
-The eval shop is also replayed with sidecars ignored, so every photo / PDF is read by the real
-offline readers (pdfplumber + tesseract). Only the voice-note scheme needs a speech model.
+The test shop is also run with the saved .json readings switched off, so the photos and PDFs are
+read for real (pdfplumber and Tesseract). Only the voice-note scheme needs a speech model.
 """
 
 import json

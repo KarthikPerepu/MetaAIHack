@@ -1,9 +1,9 @@
 # Khata Harness Package
 """
-Khata: AI-powered bill discrepancy detection for kirana shops.
+Khata: finds the money leaking out of a kirana shop's WhatsApp.
 
-This harness ingests WhatsApp exports (chats, bill photos, PDFs, voice notes,
-UPI screenshots) and detects six classes of billing problems using Meta's models (Muse Spark and Muse Voice Transcribe on the Meta Model API).
+It reads exported chats (messages, bill photos, PDFs, voice notes, UPI screenshots) and points out
+six kinds of billing problems, using Meta's Muse Spark and Muse Voice Transcribe models.
 """
 
 __version__ = "2.0.0"

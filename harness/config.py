@@ -1,17 +1,16 @@
 """
-Configuration. Secrets come only from the environment (or a git-ignored .env file), never from
-files in the repo. Every MODEL_* name also accepts the older LLAMA_* name.
+Settings. The API key only ever comes from the environment or the .env file, never from code.
+Every MODEL_* setting also works under its older LLAMA_* name.
 
-    MODEL_API_KEY          Meta Model API key (hackathon credit). Alias: LLAMA_API_KEY
-    MODEL_BASE_URL         default https://api.meta.ai/v1 (Meta Model API: Muse Spark, Muse Voice Transcribe)
-                           or any OpenAI-compatible host serving open Llama weights (Ollama, Together, Groq ...)
-    MODEL_VISION_MODEL     default muse-spark-1.3 (bill photos, UPI screenshots, statements)
-    MODEL_TEXT_MODEL       default muse-spark-1.3 (messages, PDFs, feedback)
-    MODEL_VOICE_MODEL      default muse-voice-transcribe-1.0 (voice notes; Meta Model API only)
-    MODEL_REASONING_EFFORT default low (Muse Spark: minimal | low | medium | high)
-    WHISPER_MODEL          local open Whisper size, used when Muse Voice Transcribe is unavailable
-    KHATA_OFFLINE=1        never call a model; use deterministic parsers only
-    KHATA_IGNORE_SIDECARS=1  ignore <file>.json / <file>.txt sidecars (forces real extraction)
+    MODEL_API_KEY          Meta Model API key. Also read as LLAMA_API_KEY
+    MODEL_BASE_URL         https://api.meta.ai/v1 by default, or any OpenAI-style host serving Llama
+    MODEL_VISION_MODEL     muse-spark-1.3 by default (bill photos, UPI screenshots, statements)
+    MODEL_TEXT_MODEL       muse-spark-1.3 by default (messages, PDFs, feedback)
+    MODEL_VOICE_MODEL      muse-voice-transcribe-1.0 by default (voice notes, Meta Model API only)
+    MODEL_REASONING_EFFORT low by default (minimal / low / medium / high)
+    WHISPER_MODEL          local Whisper size, used if Muse Voice Transcribe isn't available
+    KHATA_OFFLINE=1        don't call any model
+    KHATA_IGNORE_SIDECARS=1  ignore the saved .json/.txt readings and read the real files
 """
 
 from __future__ import annotations

@@ -1,15 +1,15 @@
 """
-On-disk knowledge store (everything lives under ``--state-dir``).
+Saving and loading Khata's records. Everything lives under --state-dir:
 
     state_dir/
-        distributors/<CODE>.json   contract card + bills, rate lists, schemes ...
-        shop.json                  owner / shop identity, sender -> distributor map
-        feedback.json              owner decisions, applied by later reports
-        alerts.json                quarantined messages (prompt injection etc.)
-        ingest_log.json            weeks and files already ingested
-        cache/                     model + extraction cache (keeps reruns identical)
+        distributors/<CODE>.json   each distributor's bills, rate lists, schemes, payments ...
+        shop.json                  who the owner is, which sender belongs to which distributor
+        feedback.json              the owner's answers, used by every later report
+        alerts.json                messages that were set aside as scams
+        ingest_log.json            which weeks have been read
+        cache/                     saved model answers and readings, so reruns are free
 
-Writes are atomic (temp file + rename) so a crash never leaves half a card.
+Files are written to a temp file first and then swapped in, so a crash never leaves half a file.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class KnowledgeStore:
         self.alerts: list = _read_json(self.state_dir / "alerts.json", [])
         self.ingest_log: dict = _read_json(self.state_dir / "ingest_log.json", {"weeks": [], "files": {}})
 
-    # ── cards ────────────────────────────────────────────────
+    # Cards
     def card(self, code: str) -> Optional[DistributorCard]:
         return self.cards.get(code)
 
@@ -93,7 +93,7 @@ class KnowledgeStore:
     def all_cards(self) -> list[DistributorCard]:
         return [self.cards[c] for c in sorted(self.cards)]
 
-    # ── persistence ──────────────────────────────────────────
+    # Persistence
     def save(self) -> None:
         for code, card in self.cards.items():
             _atomic_write_json(self.dist_dir / f"{code}.json", card.to_dict())

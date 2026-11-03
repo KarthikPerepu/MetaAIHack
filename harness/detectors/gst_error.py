@@ -1,16 +1,15 @@
 """
-GST error: wrong GST rate for the item's HSN, or tax worked out on the wrong
-base. amount = tax charged - tax that should have been charged.
+GST error: the wrong GST rate for the item, or tax worked out on the wrong amount.
+Amount = tax charged - tax that should have been charged.
 
-* Correct rate: statutory table (harness/data/gst_rates.json, from the
-  glossary) by HSN prefix; for HSNs not in the table, the GST column of the
-  distributor's signed rate list; an owner answer from feedback wins.
-* HSN: rate list (signed) > owner feedback > bill.
-* Base: line value minus line discount minus its share of any bill discount;
-  free goods carry no tax.
-* A bill that charges no tax cannot have excess tax and is left alone.
-* Tax charged on an item whose correct rate cannot be established ->
-  cannot_determine, ask the distributor for HSN codes.
+- The right rate comes from the HSN table in harness/data/gst_rates.json (taken from the glossary).
+  For HSN codes not in it we use the GST column of the distributor's rate list, and the owner's
+  answer beats both.
+- The HSN code comes from the rate list if it has one, otherwise from the bill.
+- Tax is due on the amount after discounts. Free goods aren't taxed.
+- A bill that charges no tax can't have charged too much, so we leave it alone.
+- If tax was charged but we can't tell the right rate, we say cannot_determine and ask the
+  distributor for the HSN codes.
 """
 
 from __future__ import annotations

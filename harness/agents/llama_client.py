@@ -1,17 +1,15 @@
 """
-Model client for Meta's hosted models (OpenAI-compatible chat completions).
+Talks to Meta's hosted models through the OpenAI-style chat API.
 
-Default: Meta Model API (https://api.meta.ai/v1) with Muse Spark; works unchanged with the Llama
-API or any OpenAI-compatible host serving Llama.
+By default that's the Meta Model API (https://api.meta.ai/v1) with Muse Spark, but any host that
+serves Llama the same way works too.
 
-* Every call is cached on disk under ``<state>/cache/llm`` keyed by model, prompt
-  and image bytes, so a rerun gives identical answers and costs nothing.
-* Untrusted content (chat text, OCR text, transcripts) is wrapped in
-  <<<DATA ... DATA>>> markers and the system prompt says it is data, never
-  instructions.
-* ``available`` is False without a key or with KHATA_OFFLINE=1; every caller
-  has a deterministic fallback, so the harness runs (with less coverage)
-  without a model.
+- Every answer is saved under <state>/cache/llm, keyed by the model, the prompt and the image, so
+  running the same thing again gives the same answer and costs nothing.
+- Chat text, OCR text and transcripts are wrapped in <<<DATA ... DATA>>> and the model is told it's
+  data to read, not instructions to follow.
+- With no key (or KHATA_OFFLINE=1) `available` is False and everything falls back to our own
+  parsers, so it still runs, just with less.
 """
 
 from __future__ import annotations
@@ -84,7 +82,7 @@ class LlamaClient:
                                   timeout=self.config.timeout, max_retries=0)
         return self._client
 
-    # ── cache ────────────────────────────────────────────────
+    # Cache
     def _cache_get(self, key: str):
         if not self.cache_dir:
             return None
@@ -100,7 +98,7 @@ class LlamaClient:
         if self.cache_dir:
             (self.cache_dir / f"{key}.json").write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
-    # ── core call ────────────────────────────────────────────
+    # Core call
     def chat_json(self, prompt: str, *, image: Optional[bytes] = None, model: Optional[str] = None,
                   system: str = GUARD, max_tokens: int = 2500) -> Optional[dict]:
         """Return parsed JSON, or None when no model is available or every attempt failed."""

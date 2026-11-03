@@ -1,15 +1,15 @@
 """
-WhatsApp export parser.
+Reads WhatsApp's exported _chat.txt.
 
 Handles the formats WhatsApp actually produces:
 
-    iOS      [09/10/26, 11:30:25] Ramesh: text            <attached: 00000012-PHOTO-....jpg>
+    iPhone   [09/10/26, 11:30:25] Ramesh: text            <attached: 00000012-PHOTO-....jpg>
     Android  09/10/26, 11:30 am - Ramesh: text            IMG-20261009-WA0012.jpg (file attached)
-    either   12- or 24-hour clocks, narrow no-break spaces, LRM marks, 2- or 4-digit years,
-             multi-line messages, captions on the line after an attachment, system lines.
+    both     12 or 24 hour times, the invisible characters WhatsApp adds, 2 or 4 digit years,
+             messages over several lines, captions on the next line, system lines
 
-Day/month order is detected from the whole file (Indian exports are day-first;
-a US-format export is recognised when a "month" field exceeds 12).
+It works out day/month order from the whole file. Indian exports are day first, but a US-style
+export is spotted when a "month" goes above 12.
 """
 
 from __future__ import annotations

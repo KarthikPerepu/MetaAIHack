@@ -1,17 +1,15 @@
 """
-Ingest one week of WhatsApp exports into the khata (``harness.py ingest``).
+Reads one week of WhatsApp exports into Khata's records (`harness.py ingest`).
 
-1. Find chat exports (any *.txt that looks like one, in any sub-folder) and parse them.
-2. Read every attachment once (vision / PDF / OCR / speech-to-text, cached by file hash).
-3. Work out who is the shop owner and which distributor each sender belongs to,
-   from display names, bill numbers on the documents they send, payee names and
-   chat-file names. Nothing is hard-coded to the practice shops.
-4. Screen every message, document text and transcript for injected instructions.
-   Quarantined content never becomes a fact.
-5. Turn messages and documents into dated records on each distributor's card:
-   bills, rate lists, schemes, spoken rates, credit terms, payments, payment
-   claims, statements and deliveries.
-6. Save state atomically. Re-ingesting the same week is idempotent.
+1. Find the chat exports (any .txt that looks like one, in any sub-folder) and read them.
+2. Read every attachment once: photos, PDFs, voice notes. Results are cached by file content.
+3. Work out who the shop owner is and which distributor each sender belongs to, from their names,
+   the bill numbers on what they send, payee names and chat file names. No shop names are hard-coded.
+4. Check every message, document and transcript for scam instructions. Anything flagged is set aside
+   and never becomes a fact.
+5. Turn messages and documents into dated records on each distributor's file: bills, rate lists,
+   schemes, quoted rates, credit terms, payments, payment claims, statements and deliveries.
+6. Save. Reading the same week again doesn't create duplicates.
 """
 
 from __future__ import annotations
@@ -62,7 +60,6 @@ class IngestPipeline:
         self.agent = MessageAgent(self.llama)
         self.stats: Counter = Counter()
 
-    # ─────────────────────────────────────────────────────────
     def ingest(self, week_dir: str) -> dict:
         week = Path(week_dir).resolve()
         if not week.is_dir():
@@ -152,12 +149,10 @@ class IngestPipeline:
                           "voice": cfg.voice_model if cfg.is_meta_model_api else f"whisper-{self.config.whisper_model} (local)",
                           "endpoint": cfg.base_url, "model_calls": getattr(self.llama, "calls", 0)}
                          if self.llama.available and cfg else
-                         "on" if self.llama.available else "off: no MODEL_API_KEY (deterministic readers only)")
+                         "on" if self.llama.available else "off: no MODEL_API_KEY (using our own readers only)")
         return out
 
-    # ─────────────────────────────────────────────────────────
     # Identity
-    # ─────────────────────────────────────────────────────────
     def _identify_people(self, messages: list[ChatMessage], docs) -> None:
         shop = self.store.shop
         senders = Counter(m.sender for m in messages if m.sender and not m.is_system)
@@ -343,9 +338,7 @@ class IngestPipeline:
             return Authority.UNKNOWN
         return Authority.IDENTIFIED_PERSON
 
-    # ─────────────────────────────────────────────────────────
     # Messages
-    # ─────────────────────────────────────────────────────────
     def _resolve(self, att: str, m: ChatMessage) -> Optional[Path]:
         base: Path = getattr(m, "_dir", self.week)
         for cand in (base / att, self.week / att):
@@ -457,9 +450,7 @@ class IngestPipeline:
         self._apply_facts(card, facts, vsrc, self._authority(src.sender, code, False), kind="voice",
                           stt_conf=res.confidence or 0.6, is_owner=src.sender in self.owner_set, message=m, raw=text)
 
-    # ─────────────────────────────────────────────────────────
     # Facts from text
-    # ─────────────────────────────────────────────────────────
     def _products(self, card: DistributorCard) -> list[str]:
         names = []
         for rl in card.rate_lists:
@@ -548,9 +539,7 @@ class IngestPipeline:
                 if r and src.received_at and timedelta(0) <= src.received_at - r <= timedelta(days=2):
                     s.owner_acknowledged = True
 
-    # ─────────────────────────────────────────────────────────
     # Documents
-    # ─────────────────────────────────────────────────────────
     def _code_from_filename(self, name: str) -> Optional[str]:
         for part in re.split(r"[-_. ]", name.upper()):
             if self.store.card(part):

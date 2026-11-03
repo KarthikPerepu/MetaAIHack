@@ -1,13 +1,13 @@
 """
-Attachment reader: decides how to read each file and returns one normalised result.
+Works out how to read each attachment and returns the result in one common shape.
 
-    image  -> sidecar JSON | Muse Spark vision (auto-rotation) | tesseract OCR + text parser
-    pdf    -> sidecar JSON | pdf tables/text + parser | Muse Spark text | page render -> vision/OCR
-    audio  -> sidecar transcript | Muse Voice Transcribe | Whisper (local fallback)
+    photo  -> saved .json reading | Muse Spark (with rotation) | Tesseract OCR + our text parser
+    PDF    -> saved .json reading | tables/text + our parser | Muse Spark | render pages -> photo path
+    audio  -> saved .txt transcript | Muse Voice Transcribe | Whisper on this machine
 
-Sidecars (``GT-1187.jpg.json``, ``voice.opus.txt``) are treated as a cached
-extraction, not as ground truth: KHATA_IGNORE_SIDECARS=1 forces the real
-readers. Results are cached by file hash under <state>/cache/docs.
+The saved readings (`GT-1187.jpg.json`, `voice.opus.txt`) are just a cache, not the truth;
+KHATA_IGNORE_SIDECARS=1 makes it read the real files. Results are also cached by file content
+under <state>/cache/docs.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class DocumentReader:
         self.ignore_sidecars = ignore_sidecars
         self.whisper_model = whisper_model
 
-    # ── cache ────────────────────────────────────────────────
+    # Cache
     def _cache_load(self, key: str) -> Optional[DocResult]:
         p = self.cache_dir / f"{key}.json"
         if not p.exists():
@@ -95,7 +95,7 @@ class DocumentReader:
         (self.cache_dir / f"{key}.json").write_text(
             json.dumps(res.__dict__, default=default, ensure_ascii=False), encoding="utf-8")
 
-    # ── entry point ──────────────────────────────────────────
+    # Entry point
     def read(self, path: Path, kind: str, hint: str = "", ref_year: Optional[int] = None,
              keywords: Optional[list[str]] = None) -> DocResult:
         fh = file_hash(path)
@@ -135,7 +135,7 @@ class DocumentReader:
             res.data = normalize_doc(res.doc_type, data, ref_year)
         return res
 
-    # ── sidecars ─────────────────────────────────────────────
+    # Sidecars
     def _from_sidecar(self, path: Path, kind: str, ref_year) -> Optional[DocResult]:
         if kind == "audio":
             sc = _sidecar(path, (".txt",))
@@ -160,7 +160,7 @@ class DocumentReader:
         return DocResult(doc_type, data, method="sidecar", confidence=float(conf),
                          text=str(raw.get("raw_text", "")))
 
-    # ── images ───────────────────────────────────────────────
+    # Images
     def _read_image(self, path: Path, hint: str, ref_year) -> DocResult:
         if not _is_real_image(path):
             logger.warning(f"{path.name} is not a readable image")
@@ -187,7 +187,7 @@ class DocumentReader:
                          text=best.get("text", best["data"].get("raw_text", "") if isinstance(best["data"], dict) else ""),
                          rotation=best.get("rotation", 0))
 
-    # ── pdfs ─────────────────────────────────────────────────
+    # Pdfs
     def _read_pdf(self, path: Path, hint: str, ref_year) -> DocResult:
         text, tables = media.pdf_text_and_tables(path)
         if text.strip():
@@ -237,7 +237,7 @@ class DocumentReader:
                 return None
         return DocResult(doc_type, data, method="llama_text", confidence=0.85, text=text)
 
-    # ── audio ────────────────────────────────────────────────
+    # Audio
     def _read_audio(self, path: Path, keywords: Optional[list[str]] = None) -> DocResult:
         res = media.transcribe(path, self.whisper_model, cfg=getattr(self.llama, "config", None), keywords=keywords)
         if not res["text"]:

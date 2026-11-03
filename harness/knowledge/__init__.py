@@ -1,2 +1,2 @@
 # Knowledge Store Package
-"""Persistent state management for distributor knowledge."""
+"""What Khata saves to disk about each distributor."""

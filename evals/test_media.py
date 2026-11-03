@@ -1,6 +1,7 @@
-"""Real media, no sidecars: rendered bill photos (one sideways, tilted and blurred), a real rate-list
-PDF, a UPI screenshot and a statement image, read end to end by the offline readers
-(pdfplumber + tesseract). With a LLAMA_API_KEY the same files go to Llama vision first.
+"""
+Real files with no saved readings: rendered bill photos (one sideways, tilted and blurry), a
+real rate-list PDF, a UPI screenshot and a statement, read all the way through with Tesseract and
+pdfplumber. With an API key the photos would go to Muse Spark first.
 """
 
 import os

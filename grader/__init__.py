@@ -1,2 +1,2 @@
 # Grader Package
-"""Official evaluation and grading harness for Khata."""
+"""Our local grader."""

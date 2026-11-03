@@ -1,16 +1,14 @@
 """
-Paid but shown due: a UPI payment already made is still listed as
-outstanding on the distributor's next statement. amount = the payment amount.
+Paid but shown due: a UPI payment was made, but the distributor's next statement still lists
+the bill as owed. Amount = the payment.
 
-* Only the latest statement (as of the report date) counts: if a newer
-  statement no longer lists the bill, the distributor fixed it.
-* A payment matches a statement line by bill reference (in the chat message
-  sent with the screenshot, or the UPI note) or by a unique amount match with
-  a payment date on/after the bill date (GLOSSARY 3.4).
-* The payment must be dated before the statement. A statement that already
-  shows the reduced balance is fine.
-* The owner says "paid" but there is no screenshot -> cannot_determine,
-  ask the owner for the UPI screenshot / reference.
+- Only the latest statement counts. If a newer one no longer lists the bill, it's been fixed.
+- A payment is matched to a bill by the bill number in the message sent with the screenshot (or
+  the UPI note), or by an amount that matches only one bill.
+- The payment has to be before the statement date. A statement that already shows the lower
+  balance is fine.
+- If the owner says "paid" but there's no screenshot, we say cannot_determine and ask the owner
+  for the UPI screenshot or reference.
 """
 
 from __future__ import annotations

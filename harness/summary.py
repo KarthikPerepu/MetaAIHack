@@ -1,10 +1,9 @@
 """
-A short Hinglish summary for the shop owner, written like a WhatsApp message.
+A short Hinglish message for the shop owner, like a WhatsApp update.
 
-We always build a plain version from the report ourselves. If a Meta model is available, Muse Spark
-rewrites it to sound more natural, but we only keep the rewrite if every number in it also appears in
-the facts we gave it. Otherwise we fall back to our own version, so the owner never sees a made-up
-amount.
+We always write a plain version from the report ourselves. If Muse Spark is available it rewrites
+that to sound more natural, but we only use its version if every number in it matches the report.
+Otherwise we stick with ours, so the owner never sees a made-up amount.
 """
 
 from __future__ import annotations

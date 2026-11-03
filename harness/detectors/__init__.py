@@ -1,2 +1,2 @@
 # Detectors Package
-"""Six-class bill discrepancy detectors."""
+"""The six checks, one file each."""

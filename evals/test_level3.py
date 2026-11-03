@@ -1,6 +1,7 @@
-"""Level-3 style scenarios: multiple weeks in fresh processes, a third shop, a backdated rate
-list, a scheme meant only once, prompt injection, conflicts settled by the owner, feedback,
-modes, the escalation cap, file-order invariance and idempotent re-ingest.
+"""
+The tricky situations the problem statement warns about: several weeks run separately, a new
+shop, a rate list that applies backwards, a scheme meant only once, scam messages, a conflict the
+owner settles, feedback, the two modes, the escalation limit, file order, and reading a week twice.
 """
 
 import json

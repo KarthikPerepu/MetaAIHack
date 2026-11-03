@@ -1,5 +1,5 @@
 """
-Tiny builder for synthetic WhatsApp weeks used by the eval suite.
+Helpers for building a fake WhatsApp week in a test.
 
     w = Week(tmp / "week_01", shop="Gupta Kirana")
     w.msg("2026-11-02 10:00", "Suresh Ashoka Traders", "Naya rate list")
@@ -9,9 +9,8 @@ Tiny builder for synthetic WhatsApp weeks used by the eval suite.
            [("Tea 250g", 10, 110)])
     w.write()
 
-Bills and screenshots are written as an image placeholder plus a sidecar JSON
-(the cached-extraction format), or rendered for real with ``render=True``.
-Rate lists are real PDFs.
+Bills and screenshots are written as a stand-in image plus a .json reading next to it, or as a
+real rendered image with render=True. Rate lists are always real PDFs.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ class Week:
         self.shop = shop
         self.lines: list[tuple[datetime, str, str]] = []
 
-    # ── chat ────────────────────────────────────────────────
+    # Chat
     def msg(self, when: str, sender: str, text: str) -> "Week":
         self.lines.append((_dt(when), sender, text))
         return self
@@ -52,7 +51,7 @@ class Week:
             self.msg(when, sender, caption)
         return self.msg(when, sender, f"<attached: {filename}>")
 
-    # ── documents ───────────────────────────────────────────
+    # Documents
     def rate_list(self, when: str, sender: str, filename: str, distributor: str, entries: list[dict],
                   effective: Optional[str], version: str = "", note: str = "", caption: str = "") -> "Week":
         media.rate_list_pdf(self.path / filename, distributor,
@@ -148,7 +147,7 @@ class Week:
         (self.path / (filename + ".txt")).write_text(transcript, encoding="utf-8")
         return self.attach(when, sender, filename)
 
-    # ── output ──────────────────────────────────────────────
+    # Output
     def write(self, fmt: str = "ios", name: str = "_chat.txt") -> Path:
         out = []
         for ts, sender, text in sorted(self.lines, key=lambda t: t[0]):

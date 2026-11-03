@@ -1,13 +1,10 @@
 """
-Duplicate bill: the same delivery billed twice under a new bill number,
-possibly weeks later. amount = full value of the repeat bill.
+Duplicate bill: the same delivery billed twice under a new bill number, maybe weeks later.
+Amount = the full value of the repeat bill.
 
-Same delivery means: same distributor, the same items with the same
-quantities (names matched fuzzily, rates may differ), and the same delivery
-(same challan number, or delivery dates within 2 days). A later bill with the
-same items but its own, later delivery is a re-order, not a duplicate. When
-the later bill shows no delivery date we use its bill date, and a delivery
-confirmed in chat near the later bill proves a separate delivery.
+"Same delivery" means the same distributor, the same items in the same quantities (names matched
+loosely, rates allowed to differ), and either the same challan number or delivery dates within
+2 days of each other. A later bill for a later delivery of the same things is just a re-order.
 """
 
 from __future__ import annotations

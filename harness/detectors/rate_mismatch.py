@@ -1,14 +1,14 @@
 """
-Rate mismatch: an item billed above the rate in force on the *bill date*.
+Rate mismatch: something billed above the rate that was valid on the bill's date.
 
-amount = (billed rate - agreed rate) x billed quantity, before GST.
+Amount = (billed rate - agreed rate) × quantity, before GST.
 
-* The governing rate comes from View.resolve_rate (effective dates, backdated
-  and corrected lists, owner-agreed rates).
-* Two lists for the same date that disagree, or a named salesman's quote that
-  disagrees with the signed list, is a conflict for the owner.
-* No rate list covering the bill date -> cannot_determine, ask the distributor.
-* Billed below the list is in the shop's favour and is left alone.
+- The agreed rate comes from View.resolve_rate, which handles effective dates, corrected and
+  backdated rate lists, and rates the owner told us about.
+- Two lists for the same date that disagree, or a salesman quoting a different rate than the signed
+  list, is a conflict for the owner to settle.
+- No rate list covering the bill date means cannot_determine, and we ask the distributor for one.
+- Billed below the list is in the shop's favour, so we leave it.
 """
 
 from __future__ import annotations

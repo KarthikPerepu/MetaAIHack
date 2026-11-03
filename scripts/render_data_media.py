@@ -1,11 +1,10 @@
 """
-Replace placeholder media in data/ with real files rendered from their sidecars.
+Swaps the placeholder files in data/ for real ones made from their .json readings.
 
-The supplied practice / exam folders had 16-byte placeholder "photos", "PDFs" and
-"voice notes" next to hand-written JSON. This renders a real bill photo, UPI
-screenshot, statement, rate-list PDF and (with espeak-ng + ffmpeg) a spoken voice
-note for each, so the real readers can be run with KHATA_IGNORE_SIDECARS=1.
-Files that are already real media are left alone.
+The practice and exam folders we started with had 16-byte stand-in "photos", "PDFs" and "voice
+notes". This makes a real bill photo, UPI screenshot, statement and rate-list PDF for each, plus a
+spoken voice note if espeak-ng and ffmpeg are installed, so the real readers can be tried with
+KHATA_IGNORE_SIDECARS=1. Files that are already real are left alone.
 
     python scripts/render_data_media.py data/practice/week_01 data/exam
 """

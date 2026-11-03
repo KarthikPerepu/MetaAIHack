@@ -1,18 +1,17 @@
 """
-The as-of view of the khata, plus the shared reasoning the detectors use.
+What the detectors see when a report is made, and the shared logic they rely on.
 
-A report for ``--as-of D`` only sees records that had *arrived* by the end
-of day D. On top of that view this module answers:
+A report "as of" a date only looks at what had arrived in the chat by the end of that day. On top
+of that, this works out:
 
-* which rate was in force for a product on a bill date
-  (latest-received list whose effective window covers the date; a backdated
-  list received later wins; two lists with the same effective date that
-  disagree, neither marked as a correction, are a conflict);
-* whether a named salesman's spoken rate disagrees with the signed list;
-* which bills are paid (UPI reference, statement, owner feedback, or a unique
-  amount match) and what is still outstanding;
-* the credit terms that apply to a distributor;
-* owner decisions from feedback that override or suppress results.
+- which rate was valid for a product on a bill's date (the latest rate list that covers the date
+  wins, so a corrected or backdated list replaces older ones; two lists for the same date that
+  disagree, with neither marked as a correction, are a conflict)
+- whether a salesman quoted a different rate than the signed list
+- which bills have been paid (bill number in the UPI message, the statement, the owner's word, or
+  a unique amount match) and what's still owed
+- which credit terms apply to a distributor
+- what the owner has told us in feedback
 """
 
 from __future__ import annotations
@@ -70,7 +69,7 @@ class View:
         self._paid_cache: dict = {}
         self._assign_payments()
 
-    # ── visibility ───────────────────────────────────────────
+    # Visibility
     def known(self, rec) -> bool:
         return recv(rec) <= self.cutoff
 
@@ -110,7 +109,7 @@ class View:
         return sorted((s for s in card.statements if self.known(s) and s.statement_date <= self.as_of),
                       key=lambda s: (s.statement_date, recv(s)))
 
-    # ── people ───────────────────────────────────────────────
+    # People
     def salesman(self, card: DistributorCard) -> str:
         for c in card.contacts:
             if c.name:
@@ -127,7 +126,7 @@ class View:
             return None
         return c.can_offer_schemes
 
-    # ── feedback lookups ─────────────────────────────────────
+    # Feedback lookups
     def verdict(self, bill_id: str, cls: str) -> Optional[dict]:
         hit = None
         for fb in self.feedback:
@@ -174,7 +173,7 @@ class View:
                     return True
         return False
 
-    # ── product matching ─────────────────────────────────────
+    # Product matching
     def match_entry(self, card: DistributorCard, rl: RateList, product: str) -> tuple[Optional[RateEntry], float]:
         names = [e.product for e in rl.entries]
         name, score = best_product_match(product, names, threshold=80)
@@ -196,7 +195,7 @@ class View:
         m = (data or {}).get("match")
         return m if m in names else None
 
-    # ── rates ────────────────────────────────────────────────
+    # Rates
     def resolve_rate(self, card: DistributorCard, product: str, on: date, bill_id: str = "") -> RateResolution:
         res = RateResolution(product=product)
         own = self.owner_rate(card, product, on, bill_id)
@@ -255,7 +254,7 @@ class View:
                     best = q
         return best
 
-    # ── credit terms ─────────────────────────────────────────
+    # Credit terms
     def credit_terms(self, card: DistributorCard) -> tuple[int, float, str, Optional[CreditTerms]]:
         days, rate, kind, chosen = self.policy.default_credit_days, self.policy.default_interest_rate, "default", None
         ordered = sorted((t for t in card.credit_terms if t.source is None or self.known(t)),
@@ -267,7 +266,7 @@ class View:
                 rate = t.interest_rate
         return days, rate, kind, chosen
 
-    # ── payments ─────────────────────────────────────────────
+    # Payments
     def _assign_payments(self) -> None:
         """Match each successful payment to at most one bill / statement line."""
         self.payment_for: dict[tuple[str, str], list[tuple[Payment, str]]] = {}

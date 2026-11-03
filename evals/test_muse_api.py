@@ -1,8 +1,9 @@
-"""Meta Model API wiring, checked against a local fake server (the test suite never calls the real API).
+"""
+Checks how we talk to the Meta Model API, using a small fake server (tests never use real credit).
 
-* Muse Voice Transcribe: the request follows Meta's cookbook (POST /asr/transcribe, Bearer auth,
-  multipart with a JSON "request" part and a WAV "audio" part) and WhatsApp .opus is converted.
-* Muse Spark: reasoning_effort is sent, and unsupported options are dropped instead of failing.
+- Voice notes: the upload matches Meta's cookbook (POST /asr/transcribe, Bearer token, a JSON
+  "request" part plus a WAV "audio" part), and WhatsApp's .opus files get converted first.
+- Muse Spark: we send reasoning_effort, and drop any option the model refuses instead of failing.
 """
 
 import json

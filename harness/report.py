@@ -1,14 +1,14 @@
 """
-Report generation (``harness.py report``) and the exam answer sheet.
+Builds the report (`harness.py report`) and the exam answer sheet.
 
-Runs the six detectors on the as-of view, applies owner feedback, assigns
-actions for the mode, enforces the escalation cap and writes:
+Runs the six checks on what had arrived by the report date, applies the owner's feedback, decides
+the action for each finding, keeps escalations under the limit, and writes:
 
-    {"as_of", "mode", "shop", "summary": {per class count / amount / bill ids ...},
-     "findings": [... GLOSSARY §7 schema ...], "safety_alerts": [...],
-     "pending_requests": [...], "feedback_processed": n}
+    {"as_of", "mode", "shop", "summary": {count / amount / bill ids per type ...},
+     "findings": [...], "safety_alerts": [...], "pending_requests": [...],
+     "feedback_processed": n, "owner_summary": {...}}
 
-Findings are sorted by class and bill id so file order never changes output.
+Findings are sorted by type and bill number, so the order of files never changes the output.
 """
 
 from __future__ import annotations

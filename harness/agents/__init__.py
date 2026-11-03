@@ -1,2 +1,2 @@
 # Agents Package
-"""Agents on Meta's models: Muse Spark for vision and text, Muse Voice Transcribe for speech."""
+"""The parts that talk to Meta's models: Muse Spark for photos and text, Muse Voice Transcribe for audio."""

@@ -1,12 +1,10 @@
 """
-Vision agent: reads bill photos, UPI screenshots, statements and scanned rate
-lists with Meta's vision model (Muse Spark on the Meta Model API).
+Reads bill photos, UPI screenshots, statements and scanned rate lists with Muse Spark.
 
-One prompt classifies and extracts. The result is validated against the
-document's own arithmetic. If the read looks wrong (unknown type, no rows,
-sums that do not add up) the image is retried rotated by 90 / 270 / 180
-degrees, which handles sideways and upside-down phone photos, and the most
-self-consistent reading wins.
+One prompt works out what the document is and reads it. We then check the reading against the
+document's own sums. If it looks wrong (unknown type, no rows, totals that don't add up), we rotate
+the photo 90, 270 or 180 degrees and try again, which fixes sideways photos, and keep the reading
+that adds up best.
 """
 
 from __future__ import annotations

@@ -1,8 +1,6 @@
 """
-Text helpers shared by every module.
-
-Everything here is deterministic and offline: number and date parsing for
-Hinglish / Devanagari text, bill-id normalisation and product-name matching.
+Small text helpers used everywhere: reading numbers and dates from Hinglish and Hindi text,
+tidying bill numbers, and matching product names that are written slightly differently. No model needed.
 """
 
 from __future__ import annotations
@@ -19,9 +17,7 @@ try:  # rapidfuzz is optional; difflib is the fallback
 except Exception:  # pragma: no cover - depends on environment
     _rf_fuzz = None
 
-# ─────────────────────────────────────────────────────────────
 # Digits and numbers
-# ─────────────────────────────────────────────────────────────
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _INVISIBLE = dict.fromkeys(map(ord, "‎‏‪‫‬‭‮﻿​"), None)
 
@@ -137,9 +133,7 @@ def fmt_num(x: float) -> str:
     return f"{x:g}" if x is not None else "?"
 
 
-# ─────────────────────────────────────────────────────────────
 # Dates
-# ─────────────────────────────────────────────────────────────
 MONTHS = {
     "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3, "apr": 4,
     "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7, "aug": 8, "august": 8,
@@ -265,9 +259,7 @@ def end_of_month(d: date) -> date:
     return nxt - timedelta(days=1)
 
 
-# ─────────────────────────────────────────────────────────────
 # Bill ids
-# ─────────────────────────────────────────────────────────────
 _BILL_ID_RE = re.compile(r"\b([A-Z]{1,5})\s?[/\-_]\s?(\d{2,7})\b")
 _NOT_BILL_PREFIX = {"UPI", "REF", "UTR", "TXN", "HSN", "GST", "GSTIN", "PIN", "OTP", "NO", "SR", "SL",
                     "V", "RS", "INR", "AC", "IFSC", "PH", "MOB", "DT", "AM", "PM", "KG", "ML", "L", "G"}
@@ -308,9 +300,7 @@ def bill_file_stem(bill_id: str) -> str:
     return (bill_id or "").replace("/", "-")
 
 
-# ─────────────────────────────────────────────────────────────
 # Products
-# ─────────────────────────────────────────────────────────────
 _PRODUCT_NOISE = re.compile(r"[^a-z0-9ऀ-ॿ ]+")
 _PRODUCT_UNIT_FIX = [
     (re.compile(r"(\d+)\s*(gms?|grams?|gm)\b"), r"\1g"),
@@ -373,9 +363,7 @@ def best_product_match(name: str, candidates: Iterable[str], threshold: float = 
     return scored[0][1], scored[0][0]
 
 
-# ─────────────────────────────────────────────────────────────
 # Names
-# ─────────────────────────────────────────────────────────────
 COMPANY_WORDS = {
     "traders", "trader", "trading", "products", "product", "confectionery", "confectionary",
     "provisions", "provision", "wholesale", "wholesalers", "wholesaler", "distributors",

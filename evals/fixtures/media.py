@@ -1,10 +1,9 @@
 """
-Realistic test media: rate-list PDFs, bill photos (tilted / sideways / blurred,
-optionally Devanagari), UPI screenshots and statements.
+Makes test files that look like the real thing: rate-list PDFs, bill photos
+(straight, tilted, sideways or blurry, some with Hindi), UPI screenshots and statements.
 
-Used by the eval suite to exercise the real readers (pdfplumber, tesseract,
-Llama vision) instead of only sidecar JSON, and by `make media` to give the
-practice / exam folders viewable files.
+The tests use these so the real readers get exercised, not just the saved .json readings.
+`make media` also uses them to fill the practice and exam folders.
 """
 
 from __future__ import annotations

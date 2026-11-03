@@ -1,24 +1,21 @@
 """
-Actions, drafts and the escalation cap.
+What Khata does about each finding, the WhatsApp drafts, and the limit on bothering the owner.
 
-Supervised (default): anything for a distributor is only DRAFTED
-("draft_whatsapp_reply"); internal actions (owner reminder, khata note)
-happen on their own.
+Supervised mode (the default): anything meant for a distributor is only drafted for the owner to
+send. Reminders and notes for the owner just happen.
 
-Autonomous: a WhatsApp reply is sent only when all four hold:
-    1. evidence is complete (documents, not just a voice note; no gaps)
-    2. nothing conflicts on that bill
-    3. amount < ₹2,000
-    4. the message can be taken back (a query, never a payment)
-plus the reading is reliable (confidence >= 0.75). Otherwise it is drafted
-and waits for the owner.
+Autonomous mode: Khata only sends a reply itself when all of these are true:
+    1. the evidence is complete (real documents, not just a voice note)
+    2. nothing on that bill conflicts
+    3. the amount is under ₹2,000
+    4. it's a query that can be taken back, never a payment
+and it's reasonably sure (confidence 0.75 or more). Otherwise it drafts and waits for the owner.
 
-There is no action that pays, and drafts never contain a UPI PIN, bank
-details or payment instructions.
+There's no payment action at all, and drafts never include a PIN, bank details or payment
+instructions.
 
-Escalation cap: at most 60% of findings may go to the owner. Conflicts always
-go to the owner; cannot_determine items first ask the person holding the
-document, and are consolidated if they would push escalations past half.
+At most 60% of findings can go to the owner. Conflicts always do. Missing-document questions go to
+whoever has the document first, and get combined if there would otherwise be too many.
 """
 
 from __future__ import annotations

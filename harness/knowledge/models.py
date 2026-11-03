@@ -1,11 +1,10 @@
 """
-Records kept in the khata (the harness's on-disk memory).
+The records Khata keeps.
 
-Every record keeps its provenance: which file it came from, which chat line
-or bill row, who sent it and *when it arrived* (``received_at``). Reports are
-computed only from records that had arrived by the ``--as-of`` date, which is
-what lets a later rate list or message change an answer without rewriting
-history.
+Every record remembers where it came from (which file, which chat line or bill row, who sent it)
+and when it arrived in the chat (`received_at`). Reports only use records that had arrived by the
+report date, which is how a later rate list or message can change an answer without rewriting the
+past.
 """
 
 from __future__ import annotations
@@ -19,9 +18,7 @@ from typing import Any, Optional, get_type_hints
 from harness.textutil import from_iso, from_iso_dt
 
 
-# ─────────────────────────────────────────────────────────────
 # Serialisation helpers
-# ─────────────────────────────────────────────────────────────
 def _dump(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat(timespec="seconds")
@@ -77,9 +74,7 @@ def _load(tp, value):
     return value
 
 
-# ─────────────────────────────────────────────────────────────
 # Enums
-# ─────────────────────────────────────────────────────────────
 class Authority(str, Enum):
     """Source authority, highest first (GLOSSARY §2)."""
     SIGNED_RATE_LIST = "signed_rate_list"
@@ -116,9 +111,7 @@ CLASSES = [
 ]
 
 
-# ─────────────────────────────────────────────────────────────
-# Provenance
-# ─────────────────────────────────────────────────────────────
+# Where a record came from
 @dataclass
 class SourceRef(Record):
     file: str = ""                 # e.g. "GT-1187.jpg" or "_chat.txt"
@@ -135,9 +128,7 @@ class SourceRef(Record):
         return self.file
 
 
-# ─────────────────────────────────────────────────────────────
 # Rate lists
-# ─────────────────────────────────────────────────────────────
 @dataclass
 class RateEntry(Record):
     product: str
@@ -182,9 +173,7 @@ class RateQuote(Record):
     stt_confidence: float = 1.0
 
 
-# ─────────────────────────────────────────────────────────────
 # Bills
-# ─────────────────────────────────────────────────────────────
 @dataclass
 class BillLine(Record):
     row: int
@@ -234,9 +223,7 @@ class Bill(Record):
         return base + (self.tax_total or 0)
 
 
-# ─────────────────────────────────────────────────────────────
 # Schemes
-# ─────────────────────────────────────────────────────────────
 @dataclass
 class Scheme(Record):
     record_id: str
@@ -264,9 +251,7 @@ class Scheme(Record):
     extraction: str = "heuristic"
 
 
-# ─────────────────────────────────────────────────────────────
 # Payments and statements
-# ─────────────────────────────────────────────────────────────
 @dataclass
 class Payment(Record):
     record_id: str
@@ -317,9 +302,7 @@ class Statement(Record):
     confidence: float = 0.9
 
 
-# ─────────────────────────────────────────────────────────────
 # Terms, contacts, deliveries
-# ─────────────────────────────────────────────────────────────
 @dataclass
 class CreditTerms(Record):
     days: int
@@ -386,9 +369,7 @@ class DistributorCard(Record):
         return True
 
 
-# ─────────────────────────────────────────────────────────────
 # Findings
-# ─────────────────────────────────────────────────────────────
 @dataclass
 class Finding:
     bill_id: str
