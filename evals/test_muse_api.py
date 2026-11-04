@@ -127,3 +127,18 @@ def test_voice_notes_get_product_names_as_hints(tmp_path, monkeypatch):
     IngestPipeline(cfg, KnowledgeStore(cfg.state_dir)).ingest(str(w.path))
     assert "Dhara" in seen["keywords"] and "Dhara Mustard Oil 1L" in seen["keywords"]
     assert "peti" in seen["keywords"]
+
+
+def test_provider_presets(monkeypatch):
+    """Muse on the Meta Model API by default; one line switches to open Llama on this computer."""
+    for k in ("MODEL_PROVIDER", "MODEL_BASE_URL", "LLAMA_BASE_URL", "MODEL_API_KEY", "LLAMA_API_KEY",
+              "MODEL_TEXT_MODEL", "MODEL_VISION_MODEL", "LLAMA_TEXT_MODEL", "LLAMA_VISION_MODEL", "KHATA_OFFLINE"):
+        monkeypatch.delenv(k, raising=False)
+    meta = LlamaConfig.from_env()
+    assert meta.base_url == "https://api.meta.ai/v1" and meta.vision_model == "muse-spark-1.3" and meta.is_meta_model_api
+    monkeypatch.setenv("MODEL_PROVIDER", "ollama")
+    llama = LlamaConfig.from_env()
+    assert llama.base_url == "http://localhost:11434/v1" and llama.vision_model == "llama3.2-vision"
+    assert llama.api_key == "ollama" and not llama.is_meta_model_api
+    monkeypatch.setenv("MODEL_VISION_MODEL", "llama3.2-vision:90b")
+    assert LlamaConfig.from_env().vision_model == "llama3.2-vision:90b"

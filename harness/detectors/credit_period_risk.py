@@ -48,7 +48,8 @@ def detect(view: View) -> list[Finding]:
             outstanding = max(0.0, (total or 0.0) - paid)
             if outstanding <= 1.0:
                 continue
-            od_days = max(1, (end - due).days)
+            mode = view.policy.interest_days
+            od_days = 1 if mode == "one_day" else window if mode == "full_window" else max(1, (end - due).days)
             interest = outstanding * rate / 365.0 * od_days
             if terms is None:
                 term_cite = f"contract card: {card.name} default terms {days} days, {fmt_num(rate * 100)}% p.a. (GLOSSARY 3.6)"
@@ -72,7 +73,7 @@ def detect(view: View) -> list[Finding]:
                          f"{(due - view.as_of).days} day(s) after {view.as_of}. "
                          + (f"{fmt_inr(paid)} already paid; " if paid else "No payment found; ")
                          + f"if {fmt_inr(outstanding)} is not paid by then, interest at {fmt_num(rate * 100)}% p.a. "
-                           f"for {od_days} day(s) to {end} is {fmt_inr(interest)}.")
+                           f"for {od_days} day(s) is {fmt_inr(interest)}.")
             f = make(CLS, bill_id, Status.CONFIRMED, distributor=card.code, amount=interest,
                      evidence=[src_cite, term_cite, f"due date {due} falls in [{start}, {end}]", extra_cite] + how,
                      reasoning=reasoning, confidence=combine(*factors), reversible=True,

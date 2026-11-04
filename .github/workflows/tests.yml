@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    env:
+      KHATA_OFFLINE: "1"          # tests never call a model API or spend credit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Tesseract and ffmpeg (offline readers for photos and audio)
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr ffmpeg
+      - name: Install Python packages
+        run: pip install -r harness/requirements.txt
+      - name: Tests
+        run: python -m pytest evals -q
+      - name: Practice set score
+        run: make grade
+      - name: Exam answer sheet
+        run: make sheet

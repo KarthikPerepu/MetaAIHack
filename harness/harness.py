@@ -6,6 +6,7 @@ The Khata command line. Each command runs on its own; everything it learns is ke
     python harness/harness.py feedback <feedback.json> --state-dir <dir>
     python harness/harness.py sheet    --as-of YYYY-MM-DD --state-dir <dir> [-o answer_sheet.json]
     python harness/harness.py check    <week_dir> [--as-of YYYY-MM-DD] [--out folder]   (ingest + report + web page)
+    python harness/harness.py doctor   <folder or .zip>   (what can and can't be read, before you run)
 
 JSON goes to the screen (or to -o); log messages go to stderr.
 """
@@ -105,6 +106,16 @@ def cmd_check(a) -> int:
     return 0
 
 
+def cmd_doctor(a) -> int:
+    from harness.doctor import examine, print_report
+    r = examine(a.target)
+    if a.json:
+        print(json.dumps(r, indent=2, ensure_ascii=False))
+    else:
+        print_report(r)
+    return 0 if r.get("ok") else 1
+
+
 def cmd_sheet(a) -> int:
     from harness.report import ReportGenerator, answer_sheet
     config, store, llama = _components(a.state_dir)
@@ -147,6 +158,11 @@ def main(argv=None) -> int:
     s.add_argument("--state-dir", default="state/check")
     s.add_argument("--out", default="khata_report", help="folder for report.json and report.html")
     s.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("doctor", help="check a data folder or .zip before running: what can and can't be read")
+    s.add_argument("target")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_doctor)
 
     s = sub.add_parser("feedback", help="learn from the owner's answers")
     s.add_argument("feedback_file")

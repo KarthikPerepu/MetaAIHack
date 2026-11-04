@@ -57,7 +57,7 @@ def assign_actions(findings: list[Finding], mode: str, policy: Policy, shop: str
             "no_conflict": f.bill_id not in conflict_bills,
             "under_2000": f.amount_inr < policy.autonomous_amount_limit,
             "reversible": bool(f.reversible),
-            "reliable_reading": f.confidence >= 0.75,
+            "reliable_reading": f.confidence >= policy.autosend_min_confidence,
         }
         passed = all(checks.values())
         f.action = {"supervised": "draft_whatsapp_reply",

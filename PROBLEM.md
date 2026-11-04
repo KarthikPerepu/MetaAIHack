@@ -57,7 +57,7 @@ Our grader (`grader/grader.py`) measures exactly these.
 
 | The brief says | The open question | What Khata does |
 |---|---|---|
-| "Use Meta's open Llama models" | The hackathon's credit is for the Meta Model API, which serves Muse, not Llama | Muse Spark (photos, text) and Muse Voice Transcribe (voice notes) by default. The model is a setting, so the same code runs on open Llama weights from any compatible host. |
+| "Use Meta's open Llama models" | The hackathon's credit is for the Meta Model API, which serves Muse, not Llama | Muse Spark (photos, text) and Muse Voice Transcribe (voice notes) by default. `MODEL_PROVIDER=ollama` runs the same code on open Llama (llama3.2-vision) on your own computer, with local Whisper for voice. Every report records which models it used. |
 | Rate list "in force on the bill date" | What if a list arrives late but says it applies from an earlier date? | The most recently received list covering the bill date wins, so a backdated or corrected list re-prices bills from its start date. A report "as of" an earlier date still gives the old answer. Two lists for the same date that disagree, neither marked as a correction, are a conflict. |
 | A rate list's effective date | Some lists don't print one | It applies from the day it arrived in the chat, with lower confidence and a note saying so. |
 | Rate mismatch amount | Before or after GST? Rounding? | Before GST, as in the worked example. Differences under ₹0.50 per unit are treated as rounding. Billed below the list is in the shop's favour, so we leave it. |
@@ -72,6 +72,46 @@ Our grader (`grader/grader.py`) measures exactly these.
 | "Escalating more than 60%" | What counts as escalating? | We count every conflict and every missing-document question, and keep that under 60%: first by asking one question per bill, then by combining requests for the same document, and only as a last resort by moving the least important questions to a pending list. Conflicts are never hidden to meet the limit. |
 | "Learn from the owner's answers" | What should change later? | Rejected findings stay hidden; an agreed rate applies to later bills too; a chosen side settles a conflict; answers to questions let the check run. |
 | Privacy | Free API credit may let Meta use the content | Fine for the made-up hackathon data. For a real shop, use paid credit or a local Llama model. Nothing personal is stored outside the state folder. |
+
+## If you read the brief differently
+
+Every choice above that changes an answer is a setting, with our reading as the default. One line in
+`.env` switches it, no code change needed, and every report lists the choices it used under
+`policy.rules`:
+
+| Setting | Our default | Alternatives |
+|---|---|---|
+| `KHATA_INTEREST_DAYS` | `to_window_end`: from the due date to the end of the 7-day window | `one_day`, `full_window` (7 days) |
+| `KHATA_SCHEME_SCALING` | `by_wording`: "10 pe 1" scales, "20 lo 2 free" doesn't | `always`, `never` |
+| `KHATA_DUPLICATE_WINDOW_DAYS` | `2` | any number of days |
+| `KHATA_VOICE_ONLY_AUTOSEND` | `no` | `yes` |
+| `KHATA_AUTOSEND_LIMIT` / `KHATA_AUTOSEND_MIN_CONFIDENCE` | `2000` / `0.75` | any |
+| `KHATA_CREDIT_DAYS` / `KHATA_INTEREST_RATE` | `30` / `0.18` | any |
+| `MODEL_PROVIDER` | `meta` (Muse) | `ollama` (open Llama) |
+
+Each alternative has its own test (`evals/test_rule_settings.py`).
+
+## About the data
+
+The brief mentions official practice data (two weeks, about 80 files) and an exam set. What came with
+our starting repo wasn't that: Gemini had generated it, with 16-byte placeholder "photos" next to
+hand-written readings. We didn't want to build something that only works on that, so:
+
+- Khata never depends on those readings. It reads real photos, PDFs and voice notes, and we turned the
+  placeholders into real files to prove it.
+- We built our own test shop from scratch (`evals/scenarios/annapurna`): a different shop, two weeks,
+  feedback in between, and an answer key covering every trap the brief lists.
+- 100+ tests build their own chats with new names and wordings, so nothing is tuned to one dataset.
+- `harness.py doctor <folder or .zip>` checks any new data before a run, and says which attachments are
+  missing, which are placeholders, and what can be read with the current setup. When the official data
+  arrives, `doctor` it, then `make grade` / `make sheet` run on it unchanged.
+
+## Doing a lot in a short time
+
+The brief is big for one build day. We kept it manageable by keeping the core small and dull on
+purpose: the model only reads, plain code does every calculation, and every rule lives in one file per
+problem type. Everything is tested automatically on each push (Python 3.11 and 3.12, see the badge in
+the README), so changes made late, or live in front of the judges, are safe to make.
 
 ## Out of scope for now
 

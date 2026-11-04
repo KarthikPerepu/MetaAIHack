@@ -152,11 +152,14 @@ def _evaluate(view: View, card, bill: Bill, s: Scheme, lines: list[BillLine]) ->
         factors.append(0.93)
     if not s.owner_acknowledged and s.authority == Authority.NAMED_SALESMAN:
         factors.append(0.98)
-    complete = s.source_kind in ("chat", "rate_list", "owner_feedback", "contract") or s.authority == Authority.OWNER
+    complete = s.source_kind in ("chat", "rate_list", "owner_feedback", "contract") or s.authority == Authority.OWNER \
+        or (s.source_kind == "voice" and view.policy.voice_only_autosend)
     evidence = [_scheme_cite(s), chat_cite(s.source) if s.source_kind == "voice" else None,
                 bill_line_cite(bill, line)]
     if s.kind == "free_goods":
-        mult = math.floor(line.quantity / s.buy_qty + 1e-9) if s.per_multiple else 1
+        scaling = view.policy.scheme_scaling
+        scales = s.per_multiple if scaling == "by_wording" else scaling == "always"
+        mult = math.floor(line.quantity / s.buy_qty + 1e-9) if scales else 1
         expected = mult * (s.free_qty or 0)
         free_product = s.free_product or s.product or line.product
         given = line.free_qty + sum(l.quantity for l in bill.lines if l.is_free and

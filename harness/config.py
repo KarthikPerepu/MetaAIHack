@@ -2,6 +2,7 @@
 Settings. The API key only ever comes from the environment or the .env file, never from code.
 Every MODEL_* setting also works under its older LLAMA_* name.
 
+    MODEL_PROVIDER         meta (default: Muse on the Meta Model API) or ollama (open Llama on this computer)
     MODEL_API_KEY          Meta Model API key. Also read as LLAMA_API_KEY
     MODEL_BASE_URL         https://api.meta.ai/v1 by default, or any OpenAI-style host serving Llama
     MODEL_VISION_MODEL     muse-spark-1.3 by default (bill photos, UPI screenshots, statements)
@@ -54,6 +55,7 @@ def _env(*names: str, default: str = "") -> str:
 
 
 META_MODEL_API = "https://api.meta.ai/v1"
+OLLAMA_API = "http://localhost:11434/v1"
 LLAMA_API = "https://api.llama.com/compat/v1"
 
 
@@ -80,11 +82,18 @@ class LlamaConfig:
 
     @classmethod
     def from_env(cls) -> "LlamaConfig":
-        base = _env("MODEL_BASE_URL", "LLAMA_BASE_URL", default=META_MODEL_API).rstrip("/")
+        # MODEL_PROVIDER picks sensible defaults: "meta" (Muse Spark on the Meta Model API, the default)
+        # or "ollama" (open Llama weights on this computer, no key needed). Any setting below still wins.
+        provider = _env("MODEL_PROVIDER", default="meta").lower()
+        if provider == "ollama":
+            preset_url, preset_model, preset_key = OLLAMA_API, "llama3.2-vision", "ollama"
+        else:
+            preset_url, preset_model, preset_key = META_MODEL_API, "", ""
+        base = _env("MODEL_BASE_URL", "LLAMA_BASE_URL", default=preset_url).rstrip("/")
         meta = "api.meta.ai" in base
-        default_model = "muse-spark-1.3" if meta else "Llama-4-Maverick-17B-128E-Instruct-FP8"
+        default_model = preset_model or ("muse-spark-1.3" if meta else "Llama-4-Maverick-17B-128E-Instruct-FP8")
         return cls(
-            api_key=_env("MODEL_API_KEY", "LLAMA_API_KEY"),
+            api_key=_env("MODEL_API_KEY", "LLAMA_API_KEY", default=preset_key),
             base_url=base,
             text_model=_env("MODEL_TEXT_MODEL", "LLAMA_TEXT_MODEL", default=default_model),
             vision_model=_env("MODEL_VISION_MODEL", "LLAMA_VISION_MODEL", default=default_model),
@@ -97,16 +106,80 @@ class LlamaConfig:
 
 @dataclass
 class Policy:
-    """Numbers that come from the problem statement / glossary."""
+    """The rules' numbers and choices. Where the brief is open, our reading is the default and the
+    alternatives are one line in .env away (see PROBLEM.md):
+
+    KHATA_INTEREST_DAYS        to_window_end (default) | one_day | full_window
+    KHATA_SCHEME_SCALING       by_wording (default: "10 pe 1" scales, "20 lo 2 free" doesn't) | always | never
+    KHATA_DUPLICATE_WINDOW_DAYS  2
+    KHATA_VOICE_ONLY_AUTOSEND  no (default) | yes
+    KHATA_AUTOSEND_LIMIT       2000          KHATA_AUTOSEND_MIN_CONFIDENCE  0.75
+    KHATA_RATE_TOLERANCE       0.5           KHATA_CREDIT_DAYS  30   KHATA_INTEREST_RATE  0.18
+    """
     autonomous_amount_limit: float = 2000.0      # send only when amount < ₹2,000
+    autosend_min_confidence: float = 0.75
     escalation_cap: float = 0.60                 # never escalate more than 60%
     escalation_target: float = 0.50              # stay comfortably below the cap
     default_credit_days: int = 30
-    default_interest_rate: float = 0.18          # 18% p.a.
+    default_interest_rate: float = 0.18          # 18% a year
     credit_window_days: int = 7
+    interest_days: str = "to_window_end"         # how many days of interest "would be due"
     duplicate_window_days: int = 2
+    scheme_scaling: str = "by_wording"           # does "X pe Y free" scale with quantity
+    voice_only_autosend: bool = False            # may a claim resting only on a voice note go out alone
     rate_tolerance: float = 0.5                  # ₹ per unit ignored as rounding
     tax_tolerance: float = 1.0                   # ₹ per bill ignored as rounding
+
+    CHOICES = {"interest_days": ("to_window_end", "one_day", "full_window"),
+               "scheme_scaling": ("by_wording", "always", "never")}
+
+    @classmethod
+    def from_env(cls) -> "Policy":
+        import logging
+        log = logging.getLogger("khata.config")
+        p = cls()
+
+        def num(name, attr, cast):
+            raw = _env(name)
+            if raw:
+                try:
+                    setattr(p, attr, cast(raw))
+                except ValueError:
+                    log.warning(f"{name}={raw!r} isn't a number; keeping {getattr(p, attr)}")
+
+        def choice(name, attr):
+            raw = _env(name).lower()
+            if raw:
+                if raw in cls.CHOICES[attr]:
+                    setattr(p, attr, raw)
+                else:
+                    log.warning(f"{name}={raw!r} isn't one of {', '.join(cls.CHOICES[attr])}; keeping {getattr(p, attr)}")
+
+        choice("KHATA_INTEREST_DAYS", "interest_days")
+        choice("KHATA_SCHEME_SCALING", "scheme_scaling")
+        num("KHATA_DUPLICATE_WINDOW_DAYS", "duplicate_window_days", int)
+        num("KHATA_AUTOSEND_LIMIT", "autonomous_amount_limit", float)
+        num("KHATA_AUTOSEND_MIN_CONFIDENCE", "autosend_min_confidence", float)
+        num("KHATA_RATE_TOLERANCE", "rate_tolerance", float)
+        num("KHATA_CREDIT_DAYS", "default_credit_days", int)
+        num("KHATA_INTEREST_RATE", "default_interest_rate", float)
+        if p.default_interest_rate > 1:          # someone wrote 18 meaning 18%
+            p.default_interest_rate /= 100.0
+        p.voice_only_autosend = _env("KHATA_VOICE_ONLY_AUTOSEND").lower() in ("1", "yes", "true")
+        return p
+
+    def rules(self) -> dict:
+        """The choices this run used, printed in every report so a reader knows our reading of the brief."""
+        return {"interest_days": self.interest_days, "scheme_scaling": self.scheme_scaling,
+                "duplicate_window_days": self.duplicate_window_days,
+                "voice_only_autosend": self.voice_only_autosend,
+                "autosend_limit_inr": self.autonomous_amount_limit,
+                "autosend_min_confidence": self.autosend_min_confidence,
+                "default_credit_days": self.default_credit_days,
+                "default_interest_rate": self.default_interest_rate,
+                "credit_window_days": self.credit_window_days,
+                "rate_tolerance_inr": self.rate_tolerance,
+                "escalation_cap": self.escalation_cap}
 
 
 def load_gst_table() -> dict:
@@ -118,7 +191,7 @@ def load_gst_table() -> dict:
 class HarnessConfig:
     state_dir: str = "state"
     llama: LlamaConfig = field(default_factory=LlamaConfig.from_env)
-    policy: Policy = field(default_factory=Policy)
+    policy: Policy = field(default_factory=Policy.from_env)
     whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", default="small"))
     ignore_sidecars: bool = field(default_factory=lambda: _env("KHATA_IGNORE_SIDECARS") in ("1", "true", "yes"))
     gst: dict = field(default_factory=load_gst_table)

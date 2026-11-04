@@ -69,14 +69,24 @@ We set Muse Spark's `reasoning_effort` to `low`. Reading a bill isn't hard, and 
 count against the output limit, so this keeps long bills from being cut off and saves credit too.
 Model answers are saved by file content, so re-running the same files costs nothing.
 
-The endpoint and model names are just settings, so the same code runs on open Llama weights from
-any OpenAI-compatible host (the problem statement allows "any host, or locally").
+The problem statement says "use Llama"; the hackathon's credit is for Muse. Both are Meta models, and
+the endpoint and model names are just settings, so the same code runs on open Llama weights too.
+`MODEL_PROVIDER=ollama` points Khata at Llama 3.2 Vision running locally under Ollama (the problem
+statement allows "any host, or locally"), and any other OpenAI-compatible Llama host works through
+`MODEL_BASE_URL`. Every report has a `models` block saying which models actually read the week, or that
+none did.
 
 ## Reading a week of chats
 
 **The export.** You can point Khata at a folder or straight at the `.zip` that WhatsApp's "Export
 chat" gives you. A zip is unpacked into the state folder first, carefully: anything that tries to
 write outside that folder (paths with `../`, links) is skipped, and unpacking stops past 1 GB.
+
+**Checking a folder first.** `harness.py doctor <folder or .zip>` looks at the data before anything is
+run on it: how many chats and messages, the date range, every attachment the chat mentions (present?
+a real photo, PDF or audio file, or a tiny placeholder?), saved readings, answer files, and whether a
+model key or Tesseract is there to read the rest. We wrote it after finding 16-byte "photos" in the
+data we started with.
 
 **The chat file.** We handle both the iPhone export (`[dd/mm/yy, hh:mm:ss] Name: ...`,
 `<attached: ...>`) and the Android one (`dd/mm/yyyy, h:mm am - Name: ...`,
@@ -242,7 +252,7 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
 
 ## Testing
 
-`make eval` (or `.\run.ps1 eval`) runs 95 tests and then replays our own test shop:
+`make eval` (or `.\run.ps1 eval`) runs 104 tests and then replays our own test shop:
 
 - `test_detectors.py`: each problem type with its look-alikes. For example a bill just before a new
   rate list (fine) vs just after (wrong), a re-order vs a duplicate, one-time vs permanent schemes, a
@@ -258,8 +268,14 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
 - `test_owner_view.py`: the summary and web page (including a fake Muse that tries to slip in a
   made-up amount, which gets rejected), and reading a WhatsApp .zip export, including one that tries
   to write a file outside its folder.
+- `test_rule_settings.py`: every open rule (interest days, scheme scaling, duplicate window, voice-only
+  autosend) set each way, checking the answer really changes, and that bad values fall back to defaults.
+- `test_doctor.py`: the folder check spots placeholders and missing attachments, and reads a zip.
 - `test_datasets.py`: practice, exam, and the two-week test shop in `evals/scenarios/annapurna`
   (a new shop, feedback between the weeks, and an answer key covering every trap above).
+
+GitHub Actions runs the whole suite plus `make grade` and `make sheet` on Python 3.11 and 3.12 for
+every push, with no API key, so the offline path is checked every time.
 
 Our grader (`grader/grader.py`) is stricter than the one we were given. A problem only counts if
 the bill, type and amount all match (within ₹1 or 1%). Evidence has to point at a real file or chat
@@ -278,9 +294,11 @@ missed. A real recording fixes it.
   the transcript against what that distributor actually sells and ask the owner when a number is unclear.
 - **The reference files may not be the official ones.** The glossary, data and grader we started
   with came from Gemini, not the organisers. GST rates are in `harness/data/gst_rates.json` and the
-  limits in `harness/config.py`, so the official numbers can be dropped in without touching code. The
-  credit-interest formula (days from the due date to the end of the 7-day window) is our reading of
-  "interest that would be due", and it's one line to change.
+  limits in `harness/config.py`, so the official numbers can be dropped in without touching code, and
+  `doctor` says up front what in a new folder can and can't be read. The rules the brief leaves open
+  (how many days of interest, how far apart a duplicate can be, whether "10 pe 1" scales, whether a
+  voice note alone may be sent on) are `KHATA_*` settings with our reading as the default; each report
+  prints the reading it used under `policy.rules`. PROBLEM.md explains each choice.
 - **Units.** We compare rates when the units match or aren't printed, and ask when they clearly don't
   (carton vs piece). A per-product conversion table learned from past bills would be better.
 - **Duplicates with no delivery date.** If a repeat bill comes weeks later with no delivery date or

@@ -69,6 +69,9 @@ class ReportGenerator:
             f.extra.pop("_key", None)
         return found, notes, view
 
+    def _models(self) -> dict:
+        return _model_info(self.llama)
+
     def generate(self, as_of: date, mode: str = "supervised") -> dict:
         found, notes, view = self.findings(as_of, mode)
         summary = summarize(found)
@@ -85,16 +88,27 @@ class ReportGenerator:
             "pending_requests": notes,
             "feedback_processed": len(self.store.feedback),
             "distributors": {c.code: c.name for c in self.store.all_cards()},
+            "models": self._models(),
             "owner_summary": None,
             "policy": {"never_pays": True, "never_shares_pin_or_bank_details": True,
                        "follows_instructions_in_content": False,
-                       "autonomous_send_requires": ["evidence_complete", "no_conflict", "amount < ₹2,000",
-                                                    "reversible query", "confidence >= 0.75"],
+                       "autonomous_send_requires": ["evidence_complete", "no_conflict", f"amount < ₹{self.config.policy.autonomous_amount_limit:,.0f}",
+                                                    "reversible query",
+                                                    f"confidence >= {self.config.policy.autosend_min_confidence}"],
+                       "rules": self.config.policy.rules(),
                        "escalation_cap": self.config.policy.escalation_cap},
         }
         from harness.summary import owner_summary
         report["owner_summary"] = owner_summary(report, self.llama)
         return report
+
+
+def _model_info(llama) -> dict:
+    cfg = getattr(llama, "config", None)
+    if llama is None or cfg is None or not getattr(llama, "available", False):
+        return {"used": False, "note": "no API key: read with our own parsers, Tesseract and local Whisper"}
+    return {"used": True, "endpoint": cfg.base_url, "vision": cfg.vision_model, "text": cfg.text_model,
+            "voice": cfg.voice_model if cfg.is_meta_model_api else "local Whisper"}
 
 
 def summarize(found: list[Finding]) -> dict:
