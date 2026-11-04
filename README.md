@@ -104,20 +104,16 @@ week's chats build on the previous week. `report` also takes `--mode autonomous`
 
 ## Your API key
 
-Open the `.env` file in the project folder and put your Meta Model API key on this line:
+The key lives in a `.env` file in the project folder. Git ignores that file, so your key stays on
+your computer and never ends up on GitHub.
+
+On Windows, run `.\set_api_key.ps1`: it asks for the key (typed hidden) and writes `.env` for you.
+
+Or by hand: copy `.env.example` to `.env` and put your key on this line:
 
 ```
 MODEL_API_KEY=paste-your-key-here
 ```
-
-Do this on your own computer only. The `.env` on GitHub just has the placeholder; never push your
-real key. After you paste it, run this once so git doesn't pick up the change:
-
-```powershell
-git update-index --skip-worktree .env
-```
-
-(On Windows you can also run `.\set_api_key.ps1`, which asks for the key and writes the file.)
 
 The other settings already have sensible defaults, but you can change them in `.env`:
 
