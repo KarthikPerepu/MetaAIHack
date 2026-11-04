@@ -8,18 +8,26 @@ Our entry for the Meta Global AI Developer Hackathon 2026 ("Build for Your World
 
 ![The report page Khata writes for the shop owner](docs/report-page.png)
 
-## The idea
+## Why this matters
 
-A small kirana shop pays dozens of distributor bills a month, and almost all of it happens on
-WhatsApp. The salesman sends a photo of the bill, a scheme gets agreed in a voice note
-("20 carton lo, 2 free milega"), a new rate list shows up as a PDF, and payments go out by UPI
-with the screenshot dropped in the same chat. Nobody goes back and re-reads all of that before
-paying the next bill, so wrong bills just get paid.
+Kirana shops still handle about 91% of India's grocery sales (Redseer, 2025), and there are an
+estimated 12 to 20 million of them. Many buy on credit from their distributors, so bills, schemes
+and payments stretch across weeks of conversation, and for shops like the one in the brief, that
+conversation lives on WhatsApp.
 
-Khata reads the exported chat and everything attached to it, keeps a running record of what each
-distributor agreed to, and points out bills that are wrong. For each problem it tells you how much
-money is involved and which chat line or bill row proves it, and it drafts a polite Hinglish
-WhatsApp reply you can send to the distributor.
+Take a shop like Shanti General Store: around 40 distributor bills a month, from six suppliers.
+The salesman sends a photo of the bill, a scheme gets agreed in a voice note ("20 carton lo, 2 free
+milega"), a new rate list shows up as a PDF and a corrected one a few days later, and payments go
+out by UPI with the screenshot dropped in the same chat. Checking one bill properly means
+remembering a voice note from three weeks ago and which rate list was valid on that date. Nobody
+does that before paying, so wrong bills just get paid.
+
+## What Khata does
+
+Export the chat from WhatsApp (the .zip is fine) and give it to Khata. It reads the messages and
+everything attached, keeps a running record of what each distributor agreed to, and shows the owner
+which bills are wrong, by how much, and the exact chat line or bill row that proves it. For each one
+it drafts a polite Hinglish WhatsApp reply she can copy and send.
 
 It looks for six kinds of problems:
 
@@ -42,7 +50,8 @@ phone or laptop: how much to claim back from each distributor, every problem wit
 for the owner at the top. Muse Spark writes that summary; we only keep it if every amount and bill
 number in it matches the report, so it can't invent anything.
 
-The longer explanation of how it works is in [DESIGN.md](DESIGN.md).
+[PROBLEM.md](PROBLEM.md) explains the problem from the owner's side, how we measure success, and
+every point the brief leaves open with the decision we made. [DESIGN.md](DESIGN.md) explains how it works.
 
 ## Which Meta models we use
 
@@ -68,7 +77,7 @@ On Windows (PowerShell):
 .\run.ps1 setup      # install everything into a .venv folder
 .\run.ps1 eval       # run our tests (doesn't use the API)
 .\run.ps1 demo       # run on real photos and voice notes with Muse, opens the report page
-.\run.ps1 check C:\path\to\export   # check any WhatsApp export folder and open its report page
+.\run.ps1 check C:\path\to\chat.zip  # check any WhatsApp export (.zip or folder) and open its report page
 .\run.ps1 grade      # practice set, prints a score card
 .\run.ps1 sheet      # exam set, writes answer_sheet.json
 ```
@@ -83,8 +92,9 @@ python harness/harness.py report --as-of 2026-10-15 --mode supervised --state-di
 python harness/harness.py feedback data/practice/feedback/feedback.json --state-dir state/practice
 ```
 
-`report` can also write the web page: add `--html report.html`. And `check <folder>` does
-ingest + report + page in one go, using the date of the last message.
+`ingest` and `check` take either a folder or the `.zip` that WhatsApp's "Export chat" gives you.
+`report` can also write the web page: add `--html report.html`. And `check` does ingest + report
++ page in one go, using the date of the last message.
 
 Each one runs on its own. Whatever Khata learns is saved in the `--state-dir` folder, so the next
 week's chats build on the previous week. `report` also takes `--mode autonomous` and `-o file.json`.
@@ -201,11 +211,15 @@ harness/
   policy.py          decides what action is safe, writes the drafts
   feedback.py        learns from the owner's answers
   agents/            talking to Muse (photos and messages)
-  ingest/            reading chats, photos, PDFs and voice notes
+  ingest/            reading chats (or the exported .zip), photos, PDFs and voice notes
   detectors/         one file per problem type
   knowledge/         what gets saved to disk
 grader/grader.py     our strict local grader
 evals/               our tests, plus a two-week test shop in evals/scenarios/annapurna
 scripts/             helpers that generated the test photos, PDFs and audio
 data/                practice set, exam set, worked examples
+PROBLEM.md           the problem from the owner's side, and our decisions where the brief is open
+DESIGN.md            how it works, and what we'd do next
+DEMO.md              the demo video plan
+AI_USE.md            the AI tools we used
 ```

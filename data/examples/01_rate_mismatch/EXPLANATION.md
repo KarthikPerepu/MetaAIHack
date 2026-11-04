@@ -1,15 +1,12 @@
-# Example 1: Rate Mismatch
+# Example 1: rate mismatch
 
-## Scenario
-On 3 Oct 2026, distributor Ganga Traders (GT) issues Rate List v2 where **Sunrise Glucose Biscuit** is reduced from ₹410 to ₹395 per carton (effective 3 Oct 2026).
-On 9 Oct 2026, bill GT/1187 arrives charging 20 cartons at the old rate of ₹410.
+On 3 Oct 2026, Ganga Traders sends rate list v2. Sunrise Glucose Biscuit drops from ₹410 to ₹395 a
+carton, starting 3 Oct.
 
-## Discrepancy
-- Billed rate: ₹410
-- Agreed rate (in force on 9 Oct): ₹395
-- Difference: ₹15/carton
-- Quantity: 20 cartons
-- **Claim amount**: ₹15 × 20 = **₹300**
+On 9 Oct, bill GT/1187 charges 20 cartons at the old ₹410.
 
-## Look-alike (Clean Bill)
-Bill GT/1179 dated 2 Oct 2026 charges ₹410 for 10 cartons. This is **clean** because Rate List v1 was still in force on 2 Oct.
+The rate valid on 9 Oct is ₹395, so the bill is ₹15 a carton too high: ₹15 × 20 = **₹300** to claim back.
+
+**The look-alike:** bill GT/1179 from 2 Oct also charges ₹410, for 10 cartons. That one is fine,
+because v1 (₹410) was still valid on 2 Oct. Flagging it would mean we'd only learned "₹410 is wrong"
+instead of "check the rate on the bill's date".

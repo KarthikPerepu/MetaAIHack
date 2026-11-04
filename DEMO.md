@@ -50,6 +50,10 @@ In `week2.json`, show:
 total to claim back, the bars per distributor, the Hinglish summary written by Muse Spark, and press
 "Copy" on one of the WhatsApp drafts.
 
+**Optional, if you have time:** export a real WhatsApp chat (Export chat > Include media) with some
+made-up bills and run `.\run.ps1 check C:\path\to\chat.zip` on camera. It opens the report page
+for that chat, which shows Khata isn't tied to our test data.
+
 **2:45, wrap up (15 sec).**
 
 ```powershell

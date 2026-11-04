@@ -1,16 +1,10 @@
-# Example 5: GST Error
+# Example 5: GST error
 
-## Scenario
-On 8 Oct 2026, distributor Bengal Confectionery (BC) bills 20 packs of Cadbury Dairy Milk under HSN 1704.
-The bill charges GST @ 28% instead of the statutory GST rate of 18% for sugar confectionery (HSN 1704).
-Total taxable value: ₹10,000.
-GST charged @ 28% = ₹2,800.
-Correct GST @ 18% = ₹1,800.
+On 8 Oct 2026, Bengal Confectionery bills 100 packs of Cadbury Dairy Milk 50g at ₹100 each, under
+HSN 1704 (sugar confectionery). Taxable value: ₹10,000.
 
-## Discrepancy
-- Incorrect GST slab applied (28% instead of 18%).
-- Excess tax charged: ₹2,800 - ₹1,800 = **₹1,000**.
-- **Claim amount**: Excess tax charged = **₹1,000**.
+The bill charges 28% GST (₹2,800). The rate for HSN 1704 is 18% (₹1,800), so the shop was charged
+₹2,800 − ₹1,800 = **₹1,000** too much tax.
 
-## Special Case: Cannot Determine
-If the bill items or rate list lack HSN codes entirely, the harness outputs `cannot_determine` asking the distributor for HSN details.
+If neither the bill nor the rate list gave an HSN code, Khata couldn't tell the right rate. It would
+say cannot_determine and ask the distributor for the HSN codes.

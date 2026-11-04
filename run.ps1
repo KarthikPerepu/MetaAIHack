@@ -1,6 +1,6 @@
 # Khata on Windows PowerShell (same targets as the Makefile)
 #   .\run.ps1 setup | grade | sheet | eval | eval-shop | demo | clean
-#   .\run.ps1 check <folder with a WhatsApp export>
+#   .\run.ps1 check <WhatsApp export .zip, or a folder with _chat.txt>
 param(
   [Parameter(Position = 0)][ValidateSet("setup", "grade", "sheet", "eval", "eval-shop", "demo", "check", "clean", "help")][string]$Target = "help",
   [Parameter(Position = 1)][string]$Folder = ""
@@ -65,8 +65,8 @@ switch ($Target) {
     Start-Process (Resolve-Path report_demo.html)
   }
   "check" {
-    if (-not $Folder -or -not (Test-Path $Folder)) { throw "Usage: .\run.ps1 check <folder with _chat.txt and attachments>" }
-    $name = Split-Path $Folder -Leaf
+    if (-not $Folder -or -not (Test-Path $Folder)) { throw "Usage: .\run.ps1 check <WhatsApp export .zip, or a folder with _chat.txt>" }
+    $name = [IO.Path]::GetFileNameWithoutExtension((Split-Path $Folder -Leaf)) -replace '[^\w\-]', '_'
     Invoke-Khata check $Folder --state-dir "state\check-$name" --out "khata_report\$name"
     Start-Process (Resolve-Path "khata_report\$name\report.html")
   }

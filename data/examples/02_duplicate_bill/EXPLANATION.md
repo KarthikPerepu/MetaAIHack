@@ -1,14 +1,14 @@
-# Example 2: Duplicate Bill
+# Example 2: duplicate bill
 
-## Scenario
-On 5 Oct 2026, distributor Sharma Products (SP) issues bill SP/4401 for:
-- 10 crates Fortune Mustard Oil (1L x 12) @ ₹1,450 = ₹14,500
-- 5 bags Aashirvaad Atta (10kg) @ ₹380 = ₹1,900
-Total = ₹16,400. Delivery on 5 Oct 2026.
+On 5 Oct 2026, Sharma Products sends bill SP/4401, delivered that day:
 
-On 7 Oct 2026 (2 days later), salesman Manoj sends another bill photo SP/4412 with the exact same items and quantities (10 crates Mustard Oil, 5 bags Atta) for delivery date 6 Oct.
+- 10 crates Fortune Mustard Oil (1L × 12) at ₹1,450 = ₹14,500
+- 5 bags Aashirvaad Atta (10kg) at ₹380 = ₹1,900
 
-## Discrepancy
-- SP/4412 is a duplicate billing of the same delivery under a new bill number.
-- **Claim amount**: Full value of the repeat bill = **₹16,400**.
-- Distinct from legitimate reorders which have weeks of gap and new delivery dates.
+Total ₹16,400.
+
+Two days later, salesman Manoj sends SP/4412: exactly the same items and quantities, delivery date
+6 Oct. It's the same delivery billed again under a new number, so the whole repeat bill, **₹16,400**,
+shouldn't be paid.
+
+A genuine re-order looks different: same items, but its own later delivery date.

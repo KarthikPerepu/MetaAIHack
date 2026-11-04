@@ -2,15 +2,15 @@
   "bill_id": "GT/1040",
   "class": "credit_period_risk",
   "status": "confirmed",
-  "amount_inr": 10.0,
+  "amount_inr": 19.73,
   "evidence": [
-    "contract_card: Ganga Traders 30 days credit @ 18% p.a.",
-    "GT-1040.jpg: Bill date 2026-09-10, amount ₹20,000, due 2026-10-10 (in 5 days)"
+    "contract card: Ganga Traders, 30 days credit, 18% a year",
+    "GT-1040.jpg: bill dated 2026-09-10, ₹20,000, due 2026-10-10 (5 days after the report date)"
   ],
   "action": {
     "supervised": "remind_owner",
     "autonomous": "remind_owner"
   },
   "confidence": 0.95,
-  "reasoning": "Bill GT/1040 of ₹20,000 crosses 30-day credit limit on 10 Oct 2026 (within 7-day window of as-of date 5 Oct). Projected interest: ₹10."
+  "reasoning": "GT/1040 (₹20,000) is due on 10 Oct, inside the 7 days after 5 Oct. If it isn't paid by then, interest at 18% a year from 10 to 12 Oct is ₹20,000 × 0.18 / 365 × 2 = ₹19.73."
 }

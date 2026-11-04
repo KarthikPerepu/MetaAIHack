@@ -124,7 +124,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="khata", description="Find the money leaking out of a shop's WhatsApp.")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("ingest", help="ingest one week of WhatsApp exports")
+    s = sub.add_parser("ingest", help="ingest one week of WhatsApp exports (a folder or the exported .zip)")
     s.add_argument("week_dir")
     s.add_argument("--state-dir", default="state")
     s.set_defaults(func=cmd_ingest)
@@ -140,7 +140,7 @@ def main(argv=None) -> int:
             s.add_argument("--html", default=None, help="also write a web page version of the report")
         s.set_defaults(func=fn)
 
-    s = sub.add_parser("check", help="read one WhatsApp export folder and write report.json + report.html")
+    s = sub.add_parser("check", help="read one WhatsApp export (folder or .zip) and write report.json + report.html")
     s.add_argument("week_dir")
     s.add_argument("--as-of", default=None, help="default: date of the last message in the chat")
     s.add_argument("--mode", choices=["supervised", "autonomous"], default="supervised")

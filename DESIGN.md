@@ -6,6 +6,9 @@ distributor has agreed to, and reports bills that are costing the shop money. Ea
 with the amount, the chat line or bill row that proves it, how sure we are, and what it's safe to
 do about it.
 
+What problem we're solving, how we measure success, and the decisions we made where the brief is
+open are in [PROBLEM.md](PROBLEM.md). This page is about how it works.
+
 There are three commands and each one runs on its own: `ingest` reads a week of chats, `report`
 writes the findings for a given date, and `feedback` takes the owner's answers. Nothing stays in
 memory between them; everything lives in the `--state-dir` folder.
@@ -70,6 +73,10 @@ The endpoint and model names are just settings, so the same code runs on open Ll
 any OpenAI-compatible host (the problem statement allows "any host, or locally").
 
 ## Reading a week of chats
+
+**The export.** You can point Khata at a folder or straight at the `.zip` that WhatsApp's "Export
+chat" gives you. A zip is unpacked into the state folder first, carefully: anything that tries to
+write outside that folder (paths with `../`, links) is skipped, and unpacking stops past 1 GB.
 
 **The chat file.** We handle both the iPhone export (`[dd/mm/yy, hh:mm:ss] Name: ...`,
 `<attached: ...>`) and the Android one (`dd/mm/yyyy, h:mm am - Name: ...`,
@@ -235,7 +242,7 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
 
 ## Testing
 
-`make eval` (or `.\run.ps1 eval`) runs 94 tests and then replays our own test shop:
+`make eval` (or `.\run.ps1 eval`) runs 95 tests and then replays our own test shop:
 
 - `test_detectors.py`: each problem type with its look-alikes. For example a bill just before a new
   rate list (fine) vs just after (wrong), a re-order vs a duplicate, one-time vs permanent schemes, a
@@ -248,8 +255,9 @@ Free text goes through our rules first and then Muse Spark if the rules don't un
   screenshot and a statement, read with no saved `.json` files.
 - `test_llm_paths.py` and `test_muse_api.py`: the model code checked against a scripted fake model
   and a fake Meta server, since tests shouldn't spend credit.
-- `test_owner_view.py`: the summary and web page, including a fake Muse that tries to slip in a
-  made-up amount (rejected).
+- `test_owner_view.py`: the summary and web page (including a fake Muse that tries to slip in a
+  made-up amount, which gets rejected), and reading a WhatsApp .zip export, including one that tries
+  to write a file outside its folder.
 - `test_datasets.py`: practice, exam, and the two-week test shop in `evals/scenarios/annapurna`
   (a new shop, feedback between the weeks, and an answer key covering every trap above).
 

@@ -71,3 +71,24 @@ def test_page_escapes_chat_text():
         "safety_alerts": [{"source": "_chat.txt:L1", "reason": "x", "text": "<script>alert(1)</script>"}]}
     page = render(rep)
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;alert(1)" in page and "&lt;b&gt;Shop" in page
+
+
+def test_whatsapp_zip_export_is_read_directly_and_safely(tmp_path):
+    """A WhatsApp "Export chat" .zip works as-is, and a zip can't write outside its folder."""
+    import zipfile
+    week = ROOT / "data/practice/week_01"
+    z = tmp_path / "WhatsApp Chat with Distributors.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in week.iterdir():
+            zf.write(f, f.name)
+        zf.writestr("../escaped.txt", "should never be written")
+    state, out = tmp_path / "state", tmp_path / "out"
+    r = subprocess.run([sys.executable, str(ROOT / "harness" / "harness.py"), "check", str(z), "--state-dir", str(state),
+                        "--out", str(out), "--as-of", "2026-10-15"], capture_output=True, encoding="utf-8",
+                       errors="replace", cwd=ROOT, env={**__import__("os").environ, "KHATA_OFFLINE": "1",
+                                                        "PYTHONIOENCODING": "utf-8"})
+    assert r.returncode == 0, r.stderr[-1500:]
+    rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert rep["summary"]["to_claim_back_inr"] == 23490
+    assert not (state / "exports" / "escaped.txt").exists() and not (state / "escaped.txt").exists()
+    assert not (tmp_path / "escaped.txt").exists()

@@ -25,7 +25,7 @@ help:
 	@echo "make sheet      run the exam chats and write answer_sheet.json"
 	@echo "make eval       run our own eval suite (evals/) and the two-week eval shop"
 	@echo "make demo       eval shop with real photos only (sidecars ignored), writes report_demo.html"
-	@echo "make check DIR=folder   check any WhatsApp export folder, writes khata_report/<folder>/report.html"
+	@echo "make check DIR=export.zip   check any WhatsApp export (.zip or folder), writes khata_report/<name>/report.html"
 	@echo "make clean      remove venv, state and generated reports"
 
 setup:
@@ -72,9 +72,9 @@ demo:
 	KHATA_IGNORE_SIDECARS=1 $(H) report --as-of 2026-12-14 --mode autonomous --state-dir $(STATE)/demo -o report_demo.json --html report_demo.html
 	$(PYTHON) grader/grader.py report_demo.json $(SHOP)/answers --data $(SHOP)/week_01 --data $(SHOP)/week_02 --verbose
 
-# make check DIR=path/to/whatsapp_export
+# make check DIR=path/to/export.zip   (or a folder with _chat.txt)
 check:
-	$(H) check $(DIR) --state-dir $(STATE)/check-$(notdir $(DIR)) --out khata_report/$(notdir $(DIR))
+	$(H) check "$(DIR)" --state-dir "$(STATE)/check-$(basename $(notdir $(DIR)))" --out "khata_report/$(basename $(notdir $(DIR)))"
 
 media:
 	$(PYTHON) scripts/render_data_media.py $(PRACTICE)/week_01 $(EXAM)

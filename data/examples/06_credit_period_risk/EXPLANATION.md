@@ -1,14 +1,12 @@
-# Example 6: Credit Period Risk
+# Example 6: credit-period risk
 
-## Scenario
-On 10 Sep 2026, distributor Ganga Traders issued bill GT/1040 for ₹20,000.
-The agreed credit period in the contract card is 30 days at 18% p.a. interest.
-Due date: 10 Sep + 30 days = **10 Oct 2026**.
-As-of report date: **5 Oct 2026**.
+On 10 Sep 2026, Ganga Traders sent bill GT/1040 for ₹20,000. Their terms are 30 days of credit, then
+18% a year interest, so it's due on **10 Oct**.
 
-## Discrepancy
-- Due date 10 Oct falls within 7 days of 5 Oct (window: [5 Oct, 12 Oct]).
-- The bill is currently unpaid.
-- Overdue interest formula: `bill_amount × (annual_rate / 365) × overdue_days`
-- Projected interest if unpaid = ₹20,000 × (0.18 / 365) × 1 day overdue = **₹9.86** (rounded: ₹10).
-- **Internal Action**: Reminder to shop owner to pay before 10 Oct to avoid penal interest.
+The report is run on 5 Oct, and the bill is still unpaid. 10 Oct falls inside the next 7 days
+(5 Oct to 12 Oct), so Khata reminds the owner to pay it in time.
+
+How much is at stake: we count interest from the due date to the end of that 7-day window, which is
+2 days (10 Oct to 12 Oct). ₹20,000 × 18% ÷ 365 × 2 = **₹19.73**.
+
+This is only a reminder for the owner. Nothing is sent to the distributor.

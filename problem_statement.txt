@@ -1,3 +1,5 @@
+[Note from the team: this is a text copy of the organisers' problem statement (Khata_Problem_Statement.docx), left as it is. Our reading of it, with the open questions and the decisions we made, is in PROBLEM.md.]
+
 Khata: find the money leaking out of a shop's WhatsApp
 Hackathon problem statement · 27 Oct 2026
 The story

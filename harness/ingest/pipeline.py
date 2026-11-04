@@ -62,10 +62,16 @@ class IngestPipeline:
 
     def ingest(self, week_dir: str) -> dict:
         week = Path(week_dir).resolve()
+        label = week.name
+        if week.is_file() and week.suffix.lower() == ".zip":
+            # WhatsApp's "Export chat" gives a .zip: unpack it into the state folder and read that
+            from harness.ingest.zip_export import unpack
+            label = week.stem
+            week = unpack(week, self.store.state_dir / "exports" / label).resolve()
         if not week.is_dir():
-            raise FileNotFoundError(f"Week directory not found: {week}")
+            raise FileNotFoundError(f"Week folder (or .zip export) not found: {week}")
         self.week = week
-        self.week_label = week.name
+        self.week_label = label
         chats = sorted((p for p in week.rglob("*.txt") if is_chat_file(p)), key=lambda p: str(p.relative_to(week)))
         messages: list[ChatMessage] = []
         for chat in chats:
